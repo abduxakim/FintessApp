@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { EXERCISES, EXERCISE_BY_ID, programById } from "../../data/catalog";
 import { activeSession, useStore } from "../../data/store";
 import { useNav } from "../../app/nav";
-import { copyProgram, enroll, prepareProgramDay, setNextDay, startProgramDay } from "../../app/actions";
+import { copyProgram, enroll, prepareProgramDay, setNextDay } from "../../app/actions";
 import { GOALS, LEVELS, LOCATIONS } from "../../data/seed/labels";
 import { Confirm, MedicalNote, Note, TopBar, toast } from "../../ui/kit";
 import { Icon } from "../../ui/icons";
@@ -42,12 +42,7 @@ export function ProgramDetail({ id }: { id: string }) {
       nav.openWorkout();
       return;
     }
-    // Короткие блоки стартуют сразу, программные дни — через план, который можно поправить.
-    if (program.kind === "block") {
-      await startProgramDay(program, dayIdx);
-      nav.openWorkout();
-      return;
-    }
+    // И программы, и блоки — через план, который можно поправить перед стартом.
     prepareProgramDay(program, dayIdx);
     nav.push({ name: "preview" });
   };
@@ -144,7 +139,7 @@ export function ProgramDetail({ id }: { id: string }) {
         <div className="stack">
           {program.kind === "block" ? (
             <button className="btn primary big block" onClick={start}>
-              <Icon name="play" size={18} /> Начать
+              <Icon name="play" size={18} /> К тренировке
             </button>
           ) : isMine ? (
             <>

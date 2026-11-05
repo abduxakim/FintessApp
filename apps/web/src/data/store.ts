@@ -4,6 +4,7 @@
 import { useRef, useSyncExternalStore } from "react";
 import { idb } from "./idb";
 import { defaultMeta, normalizeMeta } from "./defaults";
+import { registerCustom } from "./custom";
 import type { Program, UserMeta, WorkoutSession } from "./types";
 
 export type EntityKind = "meta" | "session" | "program";
@@ -55,6 +56,8 @@ export function getState(): State {
 }
 
 function setState(patch: Partial<State>) {
+  // Свои упражнения из профиля сразу попадают в каталог (в том числе пришедшие из облака).
+  if (patch.meta?.customExercises) registerCustom(patch.meta.customExercises);
   state = { ...state, ...patch };
   listeners.forEach((l) => l());
 }

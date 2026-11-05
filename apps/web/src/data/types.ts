@@ -261,6 +261,8 @@ export interface GoalChange {
 export interface UserMeta extends SyncFields {
   schemaVersion: number;
   onboarded: boolean;
+  /** Свои упражнения (например, распознанные по фото тренажёра). */
+  customExercises?: Exercise[];
   profile: Profile;
   goalHistory: GoalChange[];
   enrollment: Enrollment | null;

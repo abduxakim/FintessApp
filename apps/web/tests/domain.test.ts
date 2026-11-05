@@ -361,3 +361,81 @@ describe("тренировка по запросу", () => {
     expect(parsePlan("text", EXERCISE_BY_ID)).toBeNull();
   });
 });
+
+import { solve, lerpPose, L } from "../src/ui/motion/engine";
+import { MOTIONS, EXERCISE_MOTION } from "../src/ui/motion/motions";
+import { parsePhotoResult } from "../src/domain/photo";
+import { registerCustom, sanitizeCustom } from "../src/data/custom";
+
+describe("схемы движений", () => {
+  const dist = (a: number[], b: number[]) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+  it("каждая схема привязана к существующему упражнению", () => {
+    for (const [ex, m] of Object.entries(EXERCISE_MOTION)) {
+      expect(EXERCISE_BY_ID[ex], ex).toBeDefined();
+      expect(MOTIONS[m], m).toBeDefined();
+    }
+  });
+  it("длины костей постоянны во всех позах и между ними", () => {
+    for (const [key, m] of Object.entries(MOTIONS)) {
+      expect(m.frames.length, key).toBeGreaterThanOrEqual(2);
+      for (const t of [0, 0.33, 0.5, 0.9, 1]) {
+        const sk = solve(lerpPose(m.frames[0], m.frames[m.frames.length - 1], t), m.view);
+        for (const a of sk.arms) {
+          expect(dist(a.shoulder, a.elbow), key).toBeCloseTo(L.upper, 0);
+          expect(dist(a.elbow, a.hand), key).toBeCloseTo(L.fore, 0);
+        }
+        for (const l of sk.legs) {
+          expect(dist(l.hip, l.knee), key).toBeCloseTo(L.thigh, 0);
+          expect(dist(l.knee, l.ankle), key).toBeCloseTo(L.shin, 0);
+        }
+        expect(dist(sk.hip, sk.shoulder)).toBeCloseTo(L.torso, 0);
+      }
+    }
+  });
+  it("фигура помещается в кадр", () => {
+    for (const [key, m] of Object.entries(MOTIONS)) {
+      for (const f of m.frames) {
+        const sk = solve(f, m.view);
+        const pts = [sk.headC, sk.hip, sk.shoulder, ...sk.arms.flatMap((a) => [a.elbow, a.hand]), ...sk.legs.flatMap((l) => [l.knee, l.ankle])];
+        for (const p of pts) {
+          expect(p[0], key).toBeGreaterThan(-5);
+          expect(p[0], key).toBeLessThan(205);
+          expect(p[1], key).toBeGreaterThan(-5);
+          expect(p[1], key).toBeLessThan(205);
+        }
+      }
+    }
+  });
+});
+
+describe("фото тренажёра", () => {
+  it("берёт только упражнения из каталога и проверяет новые", () => {
+    const r = parsePhotoResult(
+      {
+        machine: "Тренажёр для жима ногами",
+        confidence: "high",
+        exercises: [{ id: "leg_press" }, { id: "nope" }, "leg_press_calf_raise", { id: "__proto__" }],
+        newExercises: [
+          { name: "Жим ногами одной ногой", primary: ["quads", "glutes", "bogus"], pattern: "squat", tracking: "weight_reps", technique: "Описание" },
+          { name: "", primary: ["quads"] },
+          { name: "Без мышц", primary: [] },
+          { name: "Жим ногами", primary: ["quads"] },
+        ],
+      },
+      EXERCISE_BY_ID,
+    )!;
+    expect(r.exerciseIds).toEqual(["leg_press", "leg_press_calf_raise"]);
+    expect(r.newExercises.length).toBe(1);
+    expect(r.newExercises[0]).toMatchObject({ primary: ["quads", "glutes"], equipment: ["machine"], review: "check" });
+    expect(r.newExercises[0].id.startsWith("custom_")).toBe(true);
+    expect(parsePhotoResult({ confidence: "low", exercises: [] }, EXERCISE_BY_ID)).toBeNull();
+  });
+  it("свои упражнения регистрируются в каталоге один раз, мусор отбрасывается", () => {
+    const ex = sanitizeCustom({ name: "Тест", primary: ["calves"] }, "custom_test1234")!;
+    const before = EXERCISES.length;
+    registerCustom([ex, ex, { id: "custom_bad", name: "x" }, { id: "bench_press", name: "Подмена", primary: ["chest"] }]);
+    expect(EXERCISES.length).toBe(before + 1);
+    expect(EXERCISE_BY_ID.custom_test1234.name).toBe("Тест");
+    expect(EXERCISE_BY_ID.bench_press.name).toBe("Жим штанги лёжа");
+  });
+});

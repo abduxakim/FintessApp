@@ -185,9 +185,14 @@ export function Preview() {
           })}
           {!s.exercises.length && <div className="list-item muted">Пока пусто — добавь упражнения.</div>}
         </div>
-        <button className="btn block" onClick={() => setAdding(true)}>
-          <Icon name="plus" size={18} /> Добавить упражнение
-        </button>
+        <div className="grid-2">
+          <button className="btn" onClick={() => setAdding(true)}>
+            <Icon name="plus" size={18} /> Добавить упражнение
+          </button>
+          <button className="btn" onClick={() => nav.push({ name: "photo" })}>
+            <Icon name="camera" size={18} /> По фото тренажёра
+          </button>
+        </div>
         <p className="xs muted">
           {mainCount} {mainCount === 1 ? "упражнение" : "упражнений"} в основной части. Изменения касаются только этой тренировки; чтобы поменять программу насовсем — «Изменить программу».
         </p>

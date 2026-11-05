@@ -2,7 +2,7 @@ import React, { useMemo } from "react";
 import { EXERCISE_BY_ID, programById } from "../../data/catalog";
 import { activeSession, doneSessions, useStore } from "../../data/store";
 import { useNav } from "../../app/nav";
-import { prepareCustom, prepareProgramDay, startProgramDay } from "../../app/actions";
+import { prepareCustom, prepareProgramDay } from "../../app/actions";
 import { groupLoad } from "../../domain/balance";
 import { liveSessions } from "../../data/store";
 import { BLOCKS } from "../../data/catalog";
@@ -230,20 +230,20 @@ export function Today() {
           </button>
           <button
             className="btn"
-            onClick={async () => {
+            onClick={() => {
               if (active) return nav.openWorkout();
-              await startProgramDay(BLOCKS.find((b) => b.id === "block_stretch")!, 0);
-              nav.openWorkout();
+              prepareProgramDay(BLOCKS.find((b) => b.id === "block_stretch")!, 0);
+              nav.push({ name: "preview" });
             }}
           >
             Растяжка
           </button>
           <button
             className="btn"
-            onClick={async () => {
+            onClick={() => {
               if (active) return nav.openWorkout();
-              await startProgramDay(BLOCKS.find((b) => b.id === "block_mobility")!, 0);
-              nav.openWorkout();
+              prepareProgramDay(BLOCKS.find((b) => b.id === "block_mobility")!, 0);
+              nav.push({ name: "preview" });
             }}
           >
             Мобильность

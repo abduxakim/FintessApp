@@ -14,6 +14,7 @@ export type Route =
   | { name: "preview" }
   | { name: "program-edit"; id: string }
   | { name: "ask" }
+  | { name: "photo" }
   | { name: "data" }
   | { name: "about" };
 

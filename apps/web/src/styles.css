@@ -1129,3 +1129,88 @@ button.list-item:active {
   font-size: var(--fs-s);
   color: var(--accent);
 }
+
+.motion {
+  position: relative;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-l);
+  overflow: hidden;
+}
+.motion svg {
+  display: block;
+  width: 100%;
+  max-width: 340px;
+  height: auto;
+  margin: 0 auto;
+}
+.motion-toggle {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+}
+.mv-body {
+  stroke: var(--fg-2);
+  fill: none;
+}
+.mv-hl {
+  stroke: var(--accent);
+  fill: none;
+}
+.mv-head {
+  fill: var(--fg-2);
+}
+.mv-floor {
+  stroke: var(--line);
+  stroke-width: 2;
+}
+.mv-prop {
+  fill: var(--raise);
+}
+.mv-prop-line {
+  stroke: var(--muted);
+  stroke-linecap: round;
+}
+.mv-plate {
+  fill: var(--muted);
+  stroke: var(--bg);
+  stroke-width: 1;
+}
+.mv-bar {
+  stroke: var(--muted);
+}
+.mv-cable {
+  stroke: var(--muted);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+}
+.gallery {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  padding: 8px;
+}
+.gallery .motion svg {
+  max-width: none;
+}
+
+.photo-preview {
+  width: 100%;
+  max-height: 320px;
+  object-fit: contain;
+  border-radius: var(--r-l);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+}
+label.list-item {
+  cursor: pointer;
+}
+
+button.empty {
+  background: transparent;
+  color: var(--fg-2);
+}
+a.btn {
+  color: inherit;
+  text-decoration: none;
+}

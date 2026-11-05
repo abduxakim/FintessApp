@@ -60,6 +60,32 @@ const fakeClaude = () => {
     use: async (name) => {
       if (name === "db") return { doc: mkDoc, collection: mkCol };
       if (name === "user") return { id: async () => "u_test" };
+      if (name === "sample") {
+        // Имитация Claude: заготовленные ответы для фото тренажёра и тренировки по запросу.
+        const fn = async () => ({ text: "" });
+        fn.json = async (input, opts) => {
+          window.__sampleCalls = (window.__sampleCalls ?? 0) + 1;
+          if (opts?.images?.length)
+            return {
+              machine: "Тренажёр для жима ногами",
+              confidence: "high",
+              note: "Наклонная платформа и спинка.",
+              exercises: [{ id: "leg_press" }, { id: "leg_press_calf_raise" }, { id: "fake_id" }],
+              newExercises: [{ name: "Жим ногами одной ногой", primary: ["quads", "glutes"], pattern: "squat", tracking: "weight_reps", technique: "Одна стопа на платформе.", mistakes: ["Отрыв таза"] }],
+            };
+          return {
+            title: "Спина и ноги от Claude",
+            rationale: "Сначала база, потом изоляция.",
+            items: [
+              { id: "cardio_warmup", sets: 1, durationSec: 300, restSec: 0 },
+              { id: "pull_up", sets: 4, repsMin: 6, repsMax: 10, restSec: 120 },
+              { id: "back_squat", sets: 3, repsMin: 6, repsMax: 8, restSec: 150 },
+              { id: "invented", sets: 3 },
+            ],
+          };
+        };
+        return fn;
+      }
       return null;
     },
   };
@@ -225,6 +251,18 @@ try {
   await page.waitForTimeout(400);
   check("кнопка «Назад» возвращает к списку", await page.locator("#lib-search").isVisible());
 
+  // ── Карточка упражнения: «Как делать» и «Мышцы» ──
+  await page.fill("#lib-search", "жим штанги лёжа");
+  await page.getByRole("button", { name: /Жим штанги лёжа/ }).first().click();
+  check("анимация техники", await page.getByRole("img", { name: "Схема движения: Жим штанги лёжа" }).isVisible());
+  const yt = await page.getByRole("link", { name: /YouTube/ }).getAttribute("href");
+  check("ссылка на видео", yt.startsWith("https://www.youtube.com/results?search_query="), yt);
+  await shot(page, "11-how");
+  await page.getByRole("radio", { name: "Мышцы" }).click();
+  check("вкладка мышц", await page.locator(".body-map").isVisible());
+  await page.goBack();
+  await page.waitForTimeout(400);
+
   // ── Карта мышц: найти упражнения на икры ──
   await page.fill("#lib-search", "");
   await page.getByRole("button", { name: "Мышцы на схеме" }).click();
@@ -256,8 +294,33 @@ try {
   await page.getByRole("button", { name: "Составить с Claude" }).click();
   await page.getByText("План тренировки").waitFor();
   const askTitle = await page.inputValue("#draft-title");
-  check("план по запросу", askTitle === "Спина + Ноги", askTitle);
+  check("план по запросу от Claude (проверен)", askTitle === "Спина и ноги от Claude" && !(await page.getByText("invented").count()), askTitle);
+  await page.goBack();
+  await page.waitForTimeout(400);
+  await page.getByRole("button", { name: "Быстро, без Claude" }).click();
+  const localTitle = await page.inputValue("#draft-title");
+  check("запасной план без Claude", localTitle === "Спина + Ноги", localTitle);
+
+  // ── Фото тренажёра → упражнения в план ──
+  await page.getByRole("button", { name: "По фото тренажёра" }).click();
+  const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAEAAAAAwCAIAAAAuKetIAAAAU0lEQVR4nO3PsQ3AIADAMOBqZmaO7hEMVqX4gmTuc8efLR3wqgGtAa0BrQGtAa0BrQGtAa0BrQGtAa0BrQGtAa0BrQGtAa0BrQGtAa0BrQGtAe0DDtIB5uQ/i7MAAAAASUVORK5CYII=", "base64");
+  await page.setInputFiles("#photo-file", { name: "machine.png", mimeType: "image/png", buffer: png });
+  await page.getByRole("button", { name: "Распознать" }).click();
+  await page.getByText("Тренажёр для жима ногами").waitFor();
+  check("фото: только упражнения из каталога + новое с пометкой", (await page.locator("label.list-item").count()) === 3 && (await page.getByText("новое — проверь").isVisible()));
+  await shot(page, "12-photo");
+  await page.getByRole("button", { name: "Добавить в тренировку" }).click();
+  await page.getByText("План тренировки").waitFor();
+  check("фото: упражнения добавлены в план", (await page.getByText("Жим ногами одной ногой").count()) === 1 && (await page.getByText("Жим ногами", { exact: true }).count()) === 1);
   await shot(page, "10-ask");
+
+  // ── Быстрые блоки на «Сегодня» тоже открывают план ──
+  await page.getByRole("button", { name: "Сегодня" }).click();
+  await page.getByRole("button", { name: "Мобильность" }).click();
+  await page.getByText("План тренировки").waitFor();
+  check("«Мобильность» открывает план, а не тренировку", (await page.locator(".workout").count()) === 0 && (await page.getByRole("button", { name: "Начать тренировку" }).isVisible()));
+  await page.goBack();
+  await page.waitForTimeout(400);
 
   // ── Синхронизация ──
   await page.waitForTimeout(2500);
@@ -284,7 +347,7 @@ try {
 } catch (e) {
   // fail-shot: снимок экрана в момент ошибки
   for (const ctx of browser.contexts()) for (const pg of ctx.pages()) await shot(pg, "fail").catch(() => {});
-  check("сценарий выполнен без исключений", false, e.message.split("\n").slice(0, 2).join(" "));
+  check("сценарий выполнен без исключений", false, e.message.split("\n").slice(0, 6).join(" "));
 } finally {
   await browser.close();
   server.close();

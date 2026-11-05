@@ -2,7 +2,7 @@ import React from "react";
 import { BLOCKS, PROGRAMS, programById } from "../../data/catalog";
 import { useStore } from "../../data/store";
 import { useNav } from "../../app/nav";
-import { createProgram, startProgramDay } from "../../app/actions";
+import { createProgram, prepareProgramDay } from "../../app/actions";
 import { LOCATIONS } from "../../data/seed/labels";
 import { TopBar, toast } from "../../ui/kit";
 import { Icon } from "../../ui/icons";
@@ -15,9 +15,10 @@ export function WorkoutsHome() {
   const current = programById(state, en?.programId);
   const myPrograms = Object.values(state.programs).filter((p) => !p.deletedAt && p.owner === "user").sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
 
-  const startBlock = async (b: Program) => {
-    await startProgramDay(b, 0);
-    nav.openWorkout();
+  // Блоки тоже открываются планом: можно посмотреть и поправить перед стартом.
+  const startBlock = (b: Program) => {
+    prepareProgramDay(b, 0);
+    nav.push({ name: "preview" });
   };
 
   return (
@@ -133,7 +134,7 @@ export function WorkoutsHome() {
                       nav.openWorkout();
                       return;
                     }
-                    void startBlock(b);
+                    startBlock(b);
                   }}
                 >
                   <Icon name="play" size={18} />

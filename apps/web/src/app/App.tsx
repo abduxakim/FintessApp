@@ -3,6 +3,7 @@ import { activeSession, loadLocal, useStore } from "../data/store";
 import { startSync } from "../data/sync";
 import { NavProvider, useNav, type Tab } from "./nav";
 import { ErrorBoundary } from "./ErrorBoundary";
+import { MotionGallery } from "../ui/motion/Gallery";
 import { Icon } from "../ui/icons";
 import { ToastHost } from "../ui/kit";
 import { Onboarding } from "../features/profile/Onboarding";
@@ -15,6 +16,7 @@ import { ExerciseDetail } from "../features/workouts/ExerciseDetail";
 import { Preview } from "../features/workouts/Preview";
 import { ProgramEditor } from "../features/workouts/ProgramEditor";
 import { AskScreen } from "../features/workouts/Ask";
+import { PhotoScreen } from "../features/workouts/Photo";
 import { WorkoutOverlay } from "../features/workout/Workout";
 import { ProgressHome, RecordsScreen, SessionDetail } from "../features/progress/Progress";
 import { NutritionHome } from "../features/nutrition/Nutrition";
@@ -41,6 +43,8 @@ function Screen() {
       return <ProgramEditor key={route.id} id={route.id} />;
     case "ask":
       return <AskScreen />;
+    case "photo":
+      return <PhotoScreen />;
     case "library":
       return <Library />;
     case "exercise":
@@ -116,6 +120,7 @@ function Shell() {
 }
 
 export function App() {
+  if (typeof location !== "undefined" && location.hash === "#motion-gallery") return <MotionGallery />;
   useEffect(() => {
     void loadLocal().then(() => startSync());
     try {

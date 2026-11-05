@@ -93,6 +93,9 @@ export function Library() {
           </p>
         )}
         <div className="row">
+          <button className="btn small" onClick={() => nav.push({ name: "photo" })}>
+            <Icon name="camera" size={16} /> По фото
+          </button>
           <button className="btn small" onClick={() => setMore(true)}>
             Фильтры{extra ? ` · ${extra}` : ""}
           </button>

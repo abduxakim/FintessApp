@@ -21,9 +21,16 @@ const ERRORS: Record<string, string> = {
   invalid_json: "Claude ответил не в том формате — составил по ключевым словам.",
 };
 
+// Последний запрос сохраняется, чтобы после возврата из плана его можно было поправить.
+let lastText = "";
+
 export function AskScreen() {
   const nav = useNav();
-  const [text, setText] = useState("");
+  const [text, setTextState] = useState(lastText);
+  const setText = (t: string) => {
+    lastText = t;
+    setTextState(t);
+  };
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const ctl = useRef<AbortController | null>(null);
