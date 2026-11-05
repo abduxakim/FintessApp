@@ -1002,3 +1002,63 @@ button.list-item:active {
 .option.on svg {
   color: var(--accent);
 }
+.meter {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+.meter span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: 4px;
+}
+.stations {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0 10px 0 14px;
+}
+.station {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr) 64px;
+  gap: 8px;
+  align-items: center;
+}
+.station-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 0 10px;
+  border-radius: var(--r-s);
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  text-align: left;
+  min-width: 0;
+}
+.station-name span {
+  flex: 1;
+}
+.station-kg {
+  font-size: var(--fs-m);
+}
+.rounds {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 10px 14px 14px;
+}
+.rounds-value {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 56px;
+}
+.clock.over {
+  color: var(--accent);
+}
+.big-number.num {
+  font-family: var(--font-num);
+}

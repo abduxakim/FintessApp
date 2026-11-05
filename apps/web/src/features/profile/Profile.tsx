@@ -8,11 +8,11 @@ import { useNav } from "../../app/nav";
 import { GOALS, LEVELS, LOCATIONS, MUSCLES, ZONES } from "../../data/seed/labels";
 import { Confirm, MedicalNote, Note, TopBar, toast } from "../../ui/kit";
 import { Icon } from "../../ui/icons";
-import { BaselinesSection, BodySection, GoalSection, HealthSection, PlaceSection } from "./forms";
+import { BaselinesSection, BodySection, CircuitSection, GoalSection, HealthSection, PlaceSection } from "./forms";
 import { fmtShort, fmtTime } from "../../domain/format";
 
-type Section = "body" | "goal" | "place" | "health" | "baselines";
-const TITLES: Record<Section, string> = { body: "Тело и опыт", goal: "Цель и фокус", place: "Место и график", health: "Здоровье и баланс", baselines: "Базовые результаты" };
+type Section = "body" | "goal" | "place" | "health" | "baselines" | "circuit";
+const TITLES: Record<Section, string> = { body: "Тело и опыт", goal: "Цель и фокус", place: "Место и график", health: "Здоровье и баланс", baselines: "Базовые результаты", circuit: "Круг 5-10-15" };
 
 export function ProfileHome() {
   const nav = useNav();
@@ -26,6 +26,7 @@ export function ProfileHome() {
     { s: "place", sub: `${p.locations.map((l) => LOCATIONS[l]).join(", ")} · ${p.daysPerWeek}×/нед · ${p.sessionMin} мин` },
     { s: "health", sub: p.problemZones.length ? p.problemZones.map((z) => ZONES[z.zone]).join(", ") : "Нет проблемных зон" },
     { s: "baselines", sub: p.baselines.benchKg ? `Жим ${p.baselines.benchKg} кг × ${p.baselines.benchReps ?? "?"}` : "Не заполнено" },
+    { s: "circuit", sub: p.circuit.enabled ? `${p.circuit.position === "start" ? "После разминки" : "В конце"} · ${p.circuit.stations.map((x) => x.reps).join("-")}` : "Выключен" },
   ];
   return (
     <>
@@ -112,6 +113,7 @@ export function ProfileEdit({ section }: { section: Section }) {
         {section === "place" && <PlaceSection p={p} set={set} />}
         {section === "health" && <HealthSection p={p} set={set} />}
         {section === "baselines" && <BaselinesSection p={p} set={set} />}
+        {section === "circuit" && <CircuitSection p={p} set={set} />}
         <button className="btn primary big block" onClick={save}>
           Сохранить
         </button>

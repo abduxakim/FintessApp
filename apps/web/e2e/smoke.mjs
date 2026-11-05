@@ -118,7 +118,19 @@ try {
 
   // ── Сегодня ──
   await page.getByText("Сегодня: A").waitFor();
+  check("вопрос про круг 5-10-15", await page.getByText("Добавить круг 5-10-15 в тренировки?").isVisible());
   await shot(page, "03-today");
+  await page.getByRole("button", { name: "В начале" }).click();
+  await page.getByText("Добавить круг 5-10-15 в тренировки?").waitFor({ state: "hidden" });
+
+  // Завершить можно в любой момент; без подходов — без сохранения.
+  await page.getByRole("button", { name: "Начать", exact: true }).click();
+  await page.locator(".workout").waitFor();
+  await page.getByRole("button", { name: "Завершить" }).first().click();
+  await page.getByText("Завершить без сохранения?").waitFor();
+  await page.locator(".sheet").getByRole("button", { name: "Завершить" }).click();
+  await page.locator(".workout").waitFor({ state: "hidden" });
+  check("пустую тренировку можно завершить", await page.getByText("Сегодня: A").isVisible());
 
   // ── Тренировка A ──
   await page.getByRole("button", { name: "Начать", exact: true }).click();
@@ -135,6 +147,12 @@ try {
   await row.locator(".set-input").nth(1).fill("10");
   await row.locator(".set-input").nth(2).fill("11");
   await row.getByRole("button", { name: "Подход выполнен" }).first().click();
+  const circuit = page.locator("article[aria-label='Круг 5-10-15']");
+  check("круг стоит после разминки", (await circuit.count()) === 1);
+  await circuit.getByRole("button", { name: "Круг", exact: true }).click();
+  await circuit.getByRole("button", { name: "Круг", exact: true }).click();
+  await circuit.scrollIntoViewIfNeeded();
+  await shot(page, "04b-circuit");
   await bench.scrollIntoViewIfNeeded();
   await shot(page, "04-workout");
 
@@ -144,11 +162,16 @@ try {
   await page.getByRole("button", { name: "Продолжить" }).click();
   const doneAfterReload = await page.locator(".set-row.done").count();
   check("подходы пережили перезагрузку", doneAfterReload === 3, String(doneAfterReload));
+  const roundsAfterReload = await page.locator("article[aria-label='Круг 5-10-15'] .big-number").textContent();
+  check("круги пережили перезагрузку", roundsAfterReload === "2", roundsAfterReload);
 
   await page.getByRole("button", { name: "Завершить" }).first().click();
   await page.locator(".sheet").getByRole("button", { name: "Завершить" }).click();
   await page.getByText("Тренировка завершена").waitFor();
+  const reviewText = await page.locator(".workout").textContent();
+  check("сводка: процент плана и совет повторить день", /План: \d+%/.test(reviewText) && /повторить/i.test(reviewText) && /Круг 5-10-15: 2/.test(reviewText));
   await shot(page, "05-summary");
+  await page.getByRole("radio", { name: /Идём дальше по плану/ }).click();
   await page.getByRole("button", { name: "Готово" }).click();
   await page.getByText("Сегодня уже потренировался").waitFor();
   check("следующая тренировка — B", (await page.locator(".card.accent h2").first().textContent()).startsWith("B"));
@@ -191,7 +214,8 @@ try {
 
   // ── Синхронизация ──
   await page.waitForTimeout(2500);
-  const cloudSessions = [...cloud.keys()].filter((k) => k.includes("/sessions/")).length;
+  // Удалённые тренировки хранятся в облаке как «надгробия», чтобы удаление дошло до других устройств.
+  const cloudSessions = [...cloud.entries()].filter(([k, v]) => k.includes("/sessions/") && !JSON.parse(v).data.deletedAt).length;
   check("в облаке 2 тренировки и профиль", cloudSessions === 2 && cloud.has("data/users/u_test/fitness"), `${cloudSessions} тренировок`);
   await ctx.close();
 

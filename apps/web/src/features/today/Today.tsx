@@ -9,6 +9,8 @@ import { sessionDoneSets, sessionVolume } from "../../domain/strength";
 import { itemTarget } from "../workouts/ProgramDetail";
 import { Icon } from "../../ui/icons";
 import { ZONES } from "../../data/seed/labels";
+import { pickVariant, programCycle } from "../../domain/session";
+import { updateMeta } from "../../data/store";
 
 const WEEKDAYS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
 
@@ -26,7 +28,11 @@ export function Today() {
   const daysWithWorkout = new Set(weekDone.map((s) => startOfDay(s.startedAt)));
   const last = done[0];
   const lastDays = last ? Math.floor((startOfDay(now) - startOfDay(last.startedAt)) / 86400000) : null;
+  const cycle = program ? programCycle(en, program) : 0;
   const mainItems = day?.items.filter((i) => i.block === "main") ?? [];
+  const carry = en?.carryOver ?? [];
+  const circuit = state.meta.profile.circuit;
+  const setCircuit = (patch: Partial<typeof circuit>) => updateMeta((m) => ({ ...m, profile: { ...m.profile, circuit: { ...m.profile.circuit, ...patch, configured: true } } }));
   const zones = state.meta.profile.problemZones;
 
   const start = async () => {
@@ -73,10 +79,16 @@ export function Today() {
               </span>
             </div>
           </div>
+          {carry.length > 0 && (
+            <p className="small" style={{ color: "var(--accent)" }}>
+              + добить с прошлой: {carry.map((c) => EXERCISE_BY_ID[c.exerciseId]?.name).join(", ")}
+            </p>
+          )}
+          {circuit.enabled && <p className="small muted">Круг {circuit.stations.map((st) => st.reps).join("-")} — {circuit.position === "start" ? "после разминки" : "в конце"}</p>}
           <ul className="ex-list">
             {mainItems.slice(0, 5).map((it) => (
               <li key={it.id}>
-                <span className="ellipsis">{EXERCISE_BY_ID[it.exerciseId]?.name}</span>
+                <span className="ellipsis">{EXERCISE_BY_ID[pickVariant(it, cycle)]?.name}</span>
                 <span className="num">{itemTarget(it)}</span>
               </li>
             ))}
@@ -97,6 +109,32 @@ export function Today() {
           <span className="small">Приложение подберёт её по твоему профилю — цель, место и график.</span>
           <button className="btn primary" onClick={() => { nav.setTab("workouts"); nav.push({ name: "recommend" }); }}>
             Подобрать программу
+          </button>
+        </div>
+      )}
+
+      {!circuit.configured && !active && (
+        <div className="card">
+          <div className="stack gap-s">
+            <span className="eyebrow">Твоя привычка</span>
+            <h2 style={{ fontSize: "var(--fs-l)" }}>Добавить круг 5-10-15 в тренировки?</h2>
+            <p className="small dim">
+              5 подтягиваний, 10 отжиманий, 15 приседаний — сколько кругов успеешь. Станции можно менять: приседания с весом, выпады, разгибания ног, разные отжимания. Приложение запомнит рекорд по кругам.
+            </p>
+            <p className="small muted">
+              Совет: в дни спины и груди лучше ставить круг в конец — иначе подтягивания и отжимания заранее утомят те же мышцы, и рабочие веса в жиме и тягах будут ниже.
+            </p>
+          </div>
+          <div className="grid-2">
+            <button className="btn" onClick={() => setCircuit({ enabled: true, position: "start" })}>
+              В начале
+            </button>
+            <button className="btn primary" onClick={() => setCircuit({ enabled: true, position: "end" })}>
+              В конце
+            </button>
+          </div>
+          <button className="btn ghost small" onClick={() => setCircuit({ enabled: false })}>
+            Не нужно
           </button>
         </div>
       )}

@@ -3,7 +3,9 @@ import { e1rm, setVolume, weightForReps, setReps } from "../src/domain/strength"
 import { computeRecords, lastPerformance, sessionPRs } from "../src/domain/history";
 import { alternatives, isAvailable, zoneCaution } from "../src/domain/availability";
 import { recommendPrograms } from "../src/domain/recommend";
-import { advanceEnrollment, baselineWeight, buildSessionFromProgram, finalizeSession, newSet, suggestedReps } from "../src/domain/session";
+import { advanceEnrollment, baselineWeight, buildSessionFromProgram, finalizeSession, makeSessionExercise, newSet, pickVariant, programCycle, suggestedReps } from "../src/domain/session";
+import { reviewSession } from "../src/domain/review";
+import { defaultCircuit } from "../src/data/defaults";
 import { parseNum, plural, fmtClock } from "../src/domain/format";
 import { uuidv7 } from "../src/domain/ids";
 import { EXERCISES, EXERCISE_BY_ID, PROGRESSIONS } from "../src/data/seed/exercises";
@@ -79,6 +81,7 @@ describe("каталог", () => {
   it("все упражнения программ и прогрессий существуют", () => {
     for (const p of ALL_BUILTIN) for (const d of p.days) for (const i of d.items) expect(EXERCISE_BY_ID[i.exerciseId], `${p.id}:${i.exerciseId}`).toBeDefined();
     for (const pr of PROGRESSIONS) for (const s of pr.steps) expect(EXERCISE_BY_ID[s.exerciseId]).toBeDefined();
+    for (const p of ALL_BUILTIN) for (const d of p.days) for (const i of d.items) for (const v of i.variants ?? []) expect(EXERCISE_BY_ID[v], `${p.id}:${v}`).toBeDefined();
   });
   it("у каждого упражнения есть техника и ошибки", () => {
     for (const e of EXERCISES) {
@@ -149,12 +152,14 @@ describe("сборка тренировки", () => {
     const swapped = s.exercises.find((e) => e.swappedFromId === "bench_press");
     expect(swapped).toBeDefined();
   });
-  it("завершение убирает невыполненные подходы и пустые упражнения", () => {
+  it("завершение убирает невыполненные подходы, а пропущенные упражнения плана оставляет для сводки", () => {
     const s = buildSessionFromProgram({ program, dayIndex: 1, profile: p, sessions: [], exerciseById: EXERCISE_BY_ID, all: EXERCISES });
     s.exercises[1].sets[0] = { ...s.exercises[1].sets[0], done: true, reps: 10 };
+    s.exercises.push(makeSessionExercise({ exercise: EXERCISE_BY_ID.plank, block: "main", sets: 2, restSec: 30, profile: p, sessions: [] }));
     const f = finalizeSession(s, 9999);
-    expect(f.exercises.length).toBe(1);
-    expect(f.exercises[0].sets.length).toBe(1);
+    expect(f.exercises.length).toBe(s.exercises.length - 1); // добавленная вручную пустая — удалена
+    expect(f.exercises[1].sets.length).toBe(1);
+    expect(f.exercises.filter((e) => e.sets.length === 0).length).toBe(s.exercises.length - 2);
     expect(f.status).toBe("done");
   });
   it("программа идёт по очереди и по кругу", () => {
@@ -197,5 +202,91 @@ describe("формат", () => {
   it("uuidv7 сортируется по времени", () => {
     expect(uuidv7(1000) < uuidv7(2000)).toBe(true);
     expect(uuidv7()).toMatch(/^[0-9a-f-]{36}$/);
+  });
+});
+
+describe("чередование, перенос и круг", () => {
+  const p = userProfile();
+  const split = PROGRAMS.find((x) => x.id === "split_back_chest_shoulders")!;
+  it("вариации меняются по циклам, базовые упражнения — нет", () => {
+    const item = split.days[0].items.find((i) => i.variants)!;
+    expect(pickVariant(item, 0)).toBe(item.exerciseId);
+    expect(pickVariant(item, 1)).toBe(item.variants![0]);
+    expect(pickVariant(item, 1 + item.variants!.length)).toBe(item.exerciseId);
+    const s0 = buildSessionFromProgram({ program: split, dayIndex: 0, profile: p, sessions: [], exerciseById: EXERCISE_BY_ID, all: EXERCISES, cycle: 0 });
+    const s1 = buildSessionFromProgram({ program: split, dayIndex: 0, profile: p, sessions: [], exerciseById: EXERCISE_BY_ID, all: EXERCISES, cycle: 1 });
+    expect(s0.exercises.map((e) => e.exerciseId)).toContain("pull_up");
+    expect(s1.exercises.map((e) => e.exerciseId)).toContain("pull_up");
+    expect(s0.exercises.map((e) => e.exerciseId).join()).not.toBe(s1.exercises.map((e) => e.exerciseId).join());
+  });
+  it("номер цикла считается по завершённым тренировкам", () => {
+    expect(programCycle({ programId: split.id, startedAt: 0, nextDayIndex: 0, completedSessions: 7 }, split)).toBe(2);
+    expect(programCycle({ programId: "other", startedAt: 0, nextDayIndex: 0, completedSessions: 7 }, split)).toBe(0);
+  });
+  it("перенесённые упражнения встают после разминки", () => {
+    const s = buildSessionFromProgram({
+      program: split, dayIndex: 1, profile: p, sessions: [], exerciseById: EXERCISE_BY_ID, all: EXERCISES,
+      carryOver: [{ exerciseId: "barbell_row", sets: 2, repsMin: 8, repsMax: 10, durationSec: null, restSec: 90, fromSessionId: "x" }],
+    });
+    const i = s.exercises.findIndex((e) => e.carried);
+    expect(s.exercises[i].exerciseId).toBe("barbell_row");
+    expect(s.exercises[i - 1].block).toBe("warmup");
+    expect(s.exercises[i].targetSets).toBe(2);
+  });
+  it("круг вставляется по настройке и считает рекорд по кругам", () => {
+    const withCircuit = { ...p, circuit: { ...defaultCircuit(), enabled: true, position: "end" as const, configured: true } };
+    const s = buildSessionFromProgram({ program: split, dayIndex: 2, profile: withCircuit, sessions: [], exerciseById: EXERCISE_BY_ID, all: EXERCISES });
+    const ci = s.exercises.findIndex((e) => e.circuit);
+    expect(ci).toBeGreaterThan(0);
+    expect(s.exercises[ci + 1].block).toBe("cooldown");
+    const startS = buildSessionFromProgram({ program: split, dayIndex: 2, profile: { ...withCircuit, circuit: { ...withCircuit.circuit, position: "start" } }, sessions: [], exerciseById: EXERCISE_BY_ID, all: EXERCISES });
+    const si = startS.exercises.findIndex((e) => e.circuit);
+    expect(startS.exercises[si - 1].block).toBe("warmup");
+    s.exercises[ci].sets = [newSet({ done: true, reps: 1 }), newSet({ done: true, reps: 1 })];
+    const a = { ...finalizeSession(s, 2000), startedAt: 1000 };
+    const b = { ...a, id: "b", startedAt: 3000, exercises: a.exercises.map((e) => (e.circuit ? { ...e, sets: [...e.sets, newSet({ done: true, reps: 1 })] } : e)) };
+    expect(computeRecords([a, b], EXERCISE_BY_ID).get("circuit_5_10_15")?.rounds?.value).toBe(3);
+    expect(sessionPRs(b, [a, b], EXERCISE_BY_ID).map((x) => x.kind)).toContain("rounds");
+  });
+  it("без круга в профиле — блока нет", () => {
+    const s = buildSessionFromProgram({ program: split, dayIndex: 0, profile: p, sessions: [], exerciseById: EXERCISE_BY_ID, all: EXERCISES });
+    expect(s.exercises.some((e) => e.circuit)).toBe(false);
+  });
+});
+
+describe("сводка", () => {
+  const p = userProfile();
+  const split = PROGRAMS.find((x) => x.id === "split_back_chest_shoulders")!;
+  const build = () => buildSessionFromProgram({ program: split, dayIndex: 0, profile: p, sessions: [], exerciseById: EXERCISE_BY_ID, all: EXERCISES, now: 0 });
+  const doMain = (s: ReturnType<typeof build>, share: number) => {
+    const main = s.exercises.filter((e) => e.block === "main");
+    const n = Math.round(main.length * share);
+    main.slice(0, n).forEach((e) => e.sets.forEach((x) => Object.assign(x, { done: true, reps: 8 })));
+    return finalizeSession(s, 60 * 60000);
+  };
+  it("полное выполнение — идём дальше", () => {
+    const r = reviewSession(doMain(build(), 1), EXERCISE_BY_ID, { profile: p, nextDayName: "Грудь + трицепс" });
+    expect(r.verdict).toBe("full");
+    expect(r.recommended).toBe("continue");
+    expect(r.completion).toBe(1);
+  });
+  it("частичное — советует добить пропущенное, не больше трёх упражнений", () => {
+    const r = reviewSession(doMain(build(), 0.6), EXERCISE_BY_ID, { profile: p });
+    expect(r.verdict).toBe("partial");
+    expect(r.recommended).toBe("carry");
+    expect(r.carry.length).toBeGreaterThan(0);
+    expect(r.carry.length).toBeLessThanOrEqual(3);
+    expect(r.actions).toEqual(expect.arrayContaining(["continue", "carry", "repeat"]));
+  });
+  it("меньше половины — советует повторить день", () => {
+    const r = reviewSession(doMain(build(), 0.2), EXERCISE_BY_ID, { profile: p, dayName: "Спина + бицепс" });
+    expect(r.verdict).toBe("short");
+    expect(r.recommended).toBe("repeat");
+    expect(r.advice[0]).toContain("Спина + бицепс");
+    expect(r.missedGroups.length).toBeGreaterThan(0);
+  });
+  it("слишком долгая тренировка — совет по времени", () => {
+    const r = reviewSession({ ...doMain(build(), 1), endedAt: 150 * 60000 }, EXERCISE_BY_ID, { profile: p, plannedMin: 90 });
+    expect(r.advice.some((a) => a.includes("150 мин"))).toBe(true);
   });
 });

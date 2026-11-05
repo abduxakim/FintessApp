@@ -10,7 +10,7 @@ export type Route =
   | { name: "exercise"; id: string }
   | { name: "session"; id: string }
   | { name: "records" }
-  | { name: "profile-edit"; section: "body" | "goal" | "place" | "health" | "baselines" }
+  | { name: "profile-edit"; section: "body" | "goal" | "place" | "health" | "baselines" | "circuit" }
   | { name: "data" }
   | { name: "about" };
 

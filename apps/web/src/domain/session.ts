@@ -1,4 +1,4 @@
-import type { Enrollment, Exercise, ItemBlock, Location, Program, ProgramItem, Profile, SessionExercise, SetLog, WorkoutSession } from "../data/types";
+import type { CarryItem, CircuitStation, Enrollment, Exercise, ItemBlock, Location, Program, ProgramItem, Profile, SessionExercise, SetLog, WorkoutSession } from "../data/types";
 import { alternatives, isAvailable } from "./availability";
 import { lastPerformance } from "./history";
 import { e1rm, weightForReps } from "./strength";
@@ -35,8 +35,49 @@ export interface BuildOptions {
   sessions: WorkoutSession[];
 }
 
+/** Упражнение программы на этот цикл: базовое или одна из вариаций по кругу. */
+export function pickVariant(item: Pick<ProgramItem, "exerciseId" | "variants">, cycle: number): string {
+  const all = [item.exerciseId, ...(item.variants ?? [])];
+  return all[((cycle % all.length) + all.length) % all.length];
+}
+
+/** Номер прохода программы: сколько полных циклов уже сделано. */
+export function programCycle(en: Enrollment | null, program: Program): number {
+  if (!en || en.programId !== program.id || !program.days.length) return 0;
+  return Math.floor(en.completedSessions / program.days.length);
+}
+
+/** Станции круга: как в прошлый раз (если менял вариации), иначе из профиля. */
+function circuitStations(sessions: WorkoutSession[], exerciseId: string, profile: Profile | null): CircuitStation[] {
+  const recent = sessions
+    .filter((x) => x.status === "done" && !x.deletedAt)
+    .sort((a, b) => b.startedAt - a.startedAt)
+    .flatMap((x) => x.exercises)
+    .find((e) => e.exerciseId === exerciseId && e.circuit?.stations.length);
+  const fromProfile = profile?.circuit.stations ?? [];
+  return (recent?.circuit?.stations ?? fromProfile).map((st) => ({ ...st }));
+}
+
 /** Упражнение тренировки с подходами, заполненными по прошлому разу (или по базовым результатам). */
 export function makeSessionExercise(o: BuildOptions): SessionExercise {
+  if (o.exercise.tracking === "rounds") {
+    const c = o.profile?.circuit;
+    return {
+      id: uuidv7(),
+      exerciseId: o.exercise.id,
+      block: o.block,
+      plannedItemId: o.plannedItemId ?? null,
+      swappedFromId: null,
+      targetSets: 1,
+      repsMin: null,
+      repsMax: null,
+      durationSec: null,
+      restSec: 0,
+      notes: o.note ?? "",
+      sets: [],
+      circuit: { stations: circuitStations(o.sessions, o.exercise.id, o.profile), targetRounds: c?.targetRounds ?? null, timeCapMin: c?.timeCapMin ?? null },
+    };
+  }
   const last = lastPerformance(o.exercise.id, o.sessions);
   const base = baselineWeight(o.exercise, o.profile, o.repsMax ?? null);
   const sets: SetLog[] = [];
@@ -100,14 +141,49 @@ export function buildSessionFromProgram(args: {
   exerciseById: Record<string, Exercise>;
   all: Exercise[];
   location?: Location;
+  /** Номер прохода программы — для чередования упражнений. */
+  cycle?: number;
+  /** Упражнения, которые нужно добить с прошлой тренировки. */
+  carryOver?: CarryItem[];
   now?: number;
 }): WorkoutSession {
   const now = args.now ?? Date.now();
+  const cycle = args.cycle ?? 0;
   const day = args.program.days[args.dayIndex % args.program.days.length];
   const location = args.location ?? args.profile?.locations[0] ?? "gym";
   const exercises = day.items
-    .map((it) => fromItem(it, args.exerciseById, args.all, args.profile, location, args.sessions))
+    .map((it) => fromItem({ ...it, exerciseId: pickVariant(it, cycle) }, args.exerciseById, args.all, args.profile, location, args.sessions))
     .filter((x): x is SessionExercise => !!x);
+
+  const firstMain = () => {
+    const i = exercises.findIndex((e) => e.block !== "warmup");
+    return i < 0 ? exercises.length : i;
+  };
+
+  // Добить пропущенное — сразу после разминки, пока есть силы.
+  const carried: SessionExercise[] = [];
+  for (const c of args.carryOver ?? []) {
+    const ex = args.exerciseById[c.exerciseId];
+    if (!ex || exercises.some((e) => e.exerciseId === c.exerciseId)) continue;
+    carried.push({
+      ...makeSessionExercise({ exercise: ex, block: "main", sets: c.sets, repsMin: c.repsMin, repsMax: c.repsMax, durationSec: c.durationSec, restSec: c.restSec, note: "Добиваем с прошлой тренировки", profile: args.profile, sessions: args.sessions }),
+      carried: true,
+    });
+  }
+  exercises.splice(firstMain(), 0, ...carried);
+
+  // Круговой блок из профиля — только в программных тренировках.
+  const circuit = args.profile?.circuit;
+  const circuitEx = args.exerciseById["circuit_5_10_15"];
+  if (args.program.kind === "program" && circuit?.enabled && circuitEx) {
+    const se = makeSessionExercise({ exercise: circuitEx, block: "main", sets: 1, restSec: 0, profile: args.profile, sessions: args.sessions });
+    if (circuit.position === "start") exercises.splice(firstMain(), 0, se);
+    else {
+      const cd = exercises.findIndex((e) => e.block === "cooldown");
+      exercises.splice(cd < 0 ? exercises.length : cd, 0, se);
+    }
+  }
+
   const title = args.program.kind === "block" ? args.program.name : `${args.program.name} · ${day.name}`;
   return {
     id: uuidv7(now),
@@ -183,10 +259,17 @@ export function moveItem<T>(list: T[], index: number, delta: number): T[] {
   return copy;
 }
 
-/** Завершение: невыполненные подходы удаляются, пустые упражнения тоже. */
+/** Завершение: невыполненные подходы удаляются. Пропущенные упражнения из плана остаются
+ *  с пустым списком подходов — по ним строится сводка «что не успел». Пустые добавленные вручную — удаляются. */
 export function finalizeSession(s: WorkoutSession, now = Date.now()): WorkoutSession {
-  const exercises = s.exercises.map((e) => ({ ...e, sets: e.sets.filter((x) => x.done) })).filter((e) => e.sets.length > 0);
+  const exercises = s.exercises
+    .map((e) => ({ ...e, sets: e.sets.filter((x) => x.done) }))
+    .filter((e) => e.sets.length > 0 || e.plannedItemId != null || e.carried);
   return { ...s, exercises, status: "done", endedAt: now };
+}
+
+export function hasDoneSets(s: WorkoutSession): boolean {
+  return s.exercises.some((e) => e.sets.some((x) => x.done));
 }
 
 export function advanceEnrollment(en: Enrollment, program: Program, completedDayIndex: number | null): Enrollment {

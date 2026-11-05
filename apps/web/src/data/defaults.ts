@@ -1,7 +1,22 @@
-import type { Profile, UserMeta } from "./types";
+import type { CircuitSettings, Profile, UserMeta } from "./types";
 import { EQUIPMENT_PRESETS } from "./seed/labels";
 
 export const SCHEMA_VERSION = 1;
+
+export function defaultCircuit(): CircuitSettings {
+  return {
+    enabled: false,
+    position: "start",
+    stations: [
+      { exerciseId: "pull_up", reps: 5, weight: null },
+      { exerciseId: "push_up", reps: 10, weight: null },
+      { exerciseId: "bodyweight_squat", reps: 15, weight: null },
+    ],
+    targetRounds: null,
+    timeCapMin: null,
+    configured: false,
+  };
+}
 
 export function defaultProfile(): Profile {
   return {
@@ -21,6 +36,7 @@ export function defaultProfile(): Profile {
     weakSide: null,
     problemZones: [],
     baselines: {},
+    circuit: defaultCircuit(),
   };
 }
 
@@ -45,6 +61,12 @@ export function normalizeMeta(m: UserMeta): UserMeta {
   return {
     ...base,
     ...m,
-    profile: { ...base.profile, ...m.profile, equipment: { ...base.profile.equipment, ...m.profile?.equipment }, baselines: { ...m.profile?.baselines } },
+    profile: {
+      ...base.profile,
+      ...m.profile,
+      equipment: { ...base.profile.equipment, ...m.profile?.equipment },
+      baselines: { ...m.profile?.baselines },
+      circuit: { ...base.profile.circuit, ...m.profile?.circuit },
+    },
   };
 }

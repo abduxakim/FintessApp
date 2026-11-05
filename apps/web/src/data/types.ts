@@ -14,7 +14,8 @@ export type Level = "beginner" | "intermediate" | "advanced";
 export type Side = "left" | "right";
 
 export type Category = "strength" | "calisthenics" | "warmup" | "mobility" | "stretch" | "prehab" | "cardio";
-export type Tracking = "weight_reps" | "reps" | "time";
+/** rounds — круговой блок: каждый «подход» = один пройденный круг. */
+export type Tracking = "weight_reps" | "reps" | "time" | "rounds";
 
 export type MuscleId =
   | "chest"
@@ -83,6 +84,8 @@ export type Pattern =
   | "rotator"
   | "handstand"
   | "muscle_up"
+  | "circuit"
+  | "wrist"
   | "warmup"
   | "mobility"
   | "stretch";
@@ -117,6 +120,8 @@ export type ItemBlock = "warmup" | "main" | "cooldown";
 export interface ProgramItem {
   id: ID;
   exerciseId: ID;
+  /** Чередование по циклам программы: [exerciseId, ...variants][цикл % длина]. */
+  variants?: ID[];
   block: ItemBlock;
   sets: number;
   repsMin?: number;
@@ -185,6 +190,26 @@ export interface ProblemZone {
   limitsHeavy: boolean;
 }
 
+/** Станция кругового блока: упражнение и число повторов. */
+export interface CircuitStation {
+  exerciseId: ID;
+  reps: number;
+  weight: number | null;
+}
+
+export interface CircuitSettings {
+  enabled: boolean;
+  /** Где ставить круг в программной тренировке. */
+  position: "start" | "end";
+  stations: CircuitStation[];
+  /** null — сколько успеешь в своём темпе; число — ориентир по кругам. */
+  targetRounds: number | null;
+  /** Ограничение по времени в минутах (вариант «20 минут»). */
+  timeCapMin: number | null;
+  /** Пользователь уже решил, нужен ли круг (чтобы не спрашивать повторно). */
+  configured: boolean;
+}
+
 export interface Profile {
   heightCm: number | null;
   /** Чувствительные данные. */
@@ -203,6 +228,7 @@ export interface Profile {
   weakSide: Side | null;
   problemZones: ProblemZone[];
   baselines: Baselines;
+  circuit: CircuitSettings;
 }
 
 export interface Enrollment {
@@ -211,6 +237,18 @@ export interface Enrollment {
   /** Индекс следующего дня программы (программы идут «по очереди», не по дням недели). */
   nextDayIndex: number;
   completedSessions: number;
+  /** Упражнения, которые решено «добить» в следующей тренировке. */
+  carryOver?: CarryItem[];
+}
+
+export interface CarryItem {
+  exerciseId: ID;
+  sets: number;
+  repsMin: number | null;
+  repsMax: number | null;
+  durationSec: number | null;
+  restSec: number;
+  fromSessionId: ID;
 }
 
 export interface GoalChange {
@@ -254,6 +292,10 @@ export interface SessionExercise {
   restSec: number;
   notes: string;
   sets: SetLog[];
+  /** Только для кругового блока. */
+  circuit?: { stations: CircuitStation[]; targetRounds: number | null; timeCapMin: number | null; startedAt?: number | null };
+  /** Добито с прошлой тренировки. */
+  carried?: boolean;
 }
 
 export interface WorkoutSession extends SyncFields {

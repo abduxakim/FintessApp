@@ -8,6 +8,7 @@ import { Confirm, MedicalNote, Note, TopBar, toast } from "../../ui/kit";
 import { Icon } from "../../ui/icons";
 import { alternatives, isAvailable } from "../../domain/availability";
 import { fmtClock } from "../../domain/format";
+import { pickVariant, programCycle } from "../../domain/session";
 import type { ItemBlock, ProgramItem } from "../../data/types";
 
 const BLOCK_TITLE: Record<ItemBlock, string> = { warmup: "Разминка", main: "Основная часть", cooldown: "Заминка" };
@@ -32,6 +33,8 @@ export function ProgramDetail({ id }: { id: string }) {
   const location = profile.locations[0] ?? "gym";
   const active = activeSession(state);
   const hasShoulderZone = profile.problemZones.some((z) => z.zone === "shoulder");
+  const cycle = isMine ? programCycle(en, program) : 0;
+  const circuit = profile.circuit;
 
   const start = async () => {
     if (active) {
@@ -92,7 +95,7 @@ export function ProgramDetail({ id }: { id: string }) {
               </div>
               <div className="list">
                 {items.map((it) => {
-                  const ex = EXERCISE_BY_ID[it.exerciseId];
+                  const ex = EXERCISE_BY_ID[pickVariant(it, cycle)];
                   if (!ex) return null;
                   const unavailable = !isAvailable(ex, profile, location);
                   const alt = unavailable ? alternatives(ex, EXERCISES, profile, location)[0] : null;
@@ -105,6 +108,9 @@ export function ProgramDetail({ id }: { id: string }) {
                           {it.restSec > 0 && ` · отдых ${fmtClock(it.restSec)}`}
                         </div>
                         {it.note && <div className="sub">{it.note}</div>}
+                        {it.variants && it.variants.length > 0 && (
+                          <div className="sub">Чередуется: {[it.exerciseId, ...it.variants].map((v) => EXERCISE_BY_ID[v]?.name).join(" → ")}</div>
+                        )}
                         {unavailable && <div className="sub" style={{ color: "var(--warn)" }}>{alt ? `Нет оборудования — заменим на «${alt.name}»` : "Нет оборудования — пропусти или замени"}</div>}
                       </div>
                       <Icon name="chev" className="chev" />
@@ -115,6 +121,15 @@ export function ProgramDetail({ id }: { id: string }) {
             </section>
           );
         })}
+
+        {program.kind === "program" && circuit.enabled && (
+          <Note>
+            Круг {circuit.stations.map((st) => st.reps).join("-")} добавится {circuit.position === "start" ? "после разминки" : "в конец перед заминкой"}. Настройки — в профиле.
+          </Note>
+        )}
+        {program.days.some((d) => d.items.some((i) => i.variants?.length)) && (
+          <p className="xs muted">Вспомогательные упражнения меняются на каждом проходе программы. Базовые остаются, чтобы был виден прогресс.</p>
+        )}
 
         {hasShoulderZone && program.kind === "program" && day.items.some((i) => i.exerciseId === "band_external_rotation") && (
           <Note>В разминке есть активация лопаток и ротаторной манжеты — она учитывает твою проблемную зону.</Note>

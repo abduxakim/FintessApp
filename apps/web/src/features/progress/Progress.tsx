@@ -1,5 +1,8 @@
 import React, { useMemo, useState } from "react";
-import { EXERCISE_BY_ID } from "../../data/catalog";
+import { EXERCISE_BY_ID, programById } from "../../data/catalog";
+import { reviewSession } from "../../domain/review";
+import { ReviewBlock } from "../workout/Summary";
+import { getState } from "../../data/store";
 import { deleteSession, doneSessions, useStore } from "../../data/store";
 import { useNav } from "../../app/nav";
 import { computeRecords } from "../../domain/history";
@@ -96,6 +99,11 @@ export function SessionDetail({ id }: { id: string }) {
   const nav = useNav();
   const session = useStore((s) => s.sessions[id]);
   const [confirm, setConfirm] = useState(false);
+  const review = useMemo(() => {
+    if (!session) return null;
+    const program = programById(getState(), session.programId);
+    return reviewSession(session, EXERCISE_BY_ID, { plannedMin: program?.kind === "program" ? program.minutes : null });
+  }, [session]);
   if (!session || session.deletedAt) return <TopBar title="Тренировка не найдена" onBack={nav.back} />;
   return (
     <>
@@ -127,6 +135,7 @@ export function SessionDetail({ id }: { id: string }) {
             <span className="k">объём</span>
           </div>
         </div>
+        {review && review.fromProgram && <ReviewBlock review={{ ...review, advice: [] }} />}
         <div className="list">
           {session.exercises.map((e) => {
             const ex = EXERCISE_BY_ID[e.exerciseId];
@@ -135,6 +144,7 @@ export function SessionDetail({ id }: { id: string }) {
                 <div className="grow">
                   <div className="title">{ex?.name ?? e.exerciseId}</div>
                   <div className="sub num">{fmtSets(e.sets, ex)}</div>
+                  {e.circuit && <div className="sub">{e.circuit.stations.map((st) => `${st.reps} ${EXERCISE_BY_ID[st.exerciseId]?.name.toLowerCase() ?? ""}${st.weight ? ` (${st.weight} кг)` : ""}`).join(" · ")}</div>}
                   {e.notes && <div className="sub">Заметка: {e.notes}</div>}
                 </div>
                 <Icon name="chev" className="chev" />

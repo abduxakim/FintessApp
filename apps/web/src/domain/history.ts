@@ -26,7 +26,7 @@ export function lastPerformance(exerciseId: string, sessions: WorkoutSession[], 
   return exerciseHistory(exerciseId, sessions, excludeSessionId)[0] ?? null;
 }
 
-export type RecordKind = "e1rm" | "weight" | "reps" | "duration";
+export type RecordKind = "e1rm" | "weight" | "reps" | "duration" | "rounds";
 
 export interface RecordEntry {
   kind: RecordKind;
@@ -65,6 +65,13 @@ export function computeRecords(sessions: WorkoutSession[], exerciseById: Record<
     for (const ex of session.exercises) {
       const tracking = exerciseById[ex.exerciseId]?.tracking;
       const rec = map.get(ex.exerciseId) ?? {};
+      if (tracking === "rounds") {
+        // Рекорд круга — число кругов за одну тренировку.
+        const rounds = ex.sets.filter((s) => s.done).length;
+        if (rounds && (!rec.rounds || rounds > rec.rounds.value)) rec.rounds = { kind: "rounds", value: rounds, weight: null, reps: null, at: session.startedAt, sessionId: session.id };
+        if (rounds) map.set(ex.exerciseId, rec);
+        continue;
+      }
       for (const s of ex.sets) {
         if (!s.done || s.type !== "work") continue;
         for (const c of candidates(s, tracking)) {
@@ -74,7 +81,7 @@ export function computeRecords(sessions: WorkoutSession[], exerciseById: Record<
           }
         }
       }
-      map.set(ex.exerciseId, rec);
+      if (Object.keys(rec).length) map.set(ex.exerciseId, rec);
     }
   }
   return map;
@@ -95,7 +102,7 @@ export function sessionPRs(session: WorkoutSession, sessions: WorkoutSession[], 
   for (const [exerciseId, rec] of now) {
     const prev = before.get(exerciseId);
     if (!prev) continue;
-    for (const kind of ["e1rm", "weight", "reps", "duration"] as RecordKind[]) {
+    for (const kind of ["e1rm", "weight", "reps", "duration", "rounds"] as RecordKind[]) {
       const n = rec[kind];
       const p = prev[kind];
       if (n && p && n.value > p.value + 1e-9) out.push({ exerciseId, kind, value: n.value, previous: p.value });

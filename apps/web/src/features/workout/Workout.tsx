@@ -7,14 +7,17 @@ import { abandonWorkout, finishWorkout } from "../../app/actions";
 import { addSet, makeSessionExercise, moveItem, suggestedReps, swapExercise } from "../../domain/session";
 import { alternatives, zoneCaution } from "../../domain/availability";
 import { lastPerformance, sessionPRs, type SessionPR } from "../../domain/history";
-import { fmtClock, fmtDuration, fmtShort, fmtTonnage, parseNum, plural } from "../../domain/format";
-import { sessionDoneSets, sessionVolume } from "../../domain/strength";
+import { fmtClock, fmtShort, parseNum } from "../../domain/format";
 import { ZONES } from "../../data/seed/labels";
 import { Confirm, Sheet, TopBar, toast } from "../../ui/kit";
 import { Icon } from "../../ui/icons";
 import { ExerciseInfo } from "../workouts/ExerciseDetail";
 import { ExercisePickerSheet } from "../profile/forms";
-import { fmtRecord, fmtSets, RECORD_LABEL } from "../progress/shared";
+import { SummaryView } from "./Summary";
+import { CircuitCard } from "./Circuit";
+import { reviewSession, type SessionReview } from "../../domain/review";
+import { programById } from "../../data/catalog";
+import { fmtSets } from "../progress/shared";
 import { itemTarget } from "../workouts/ProgramDetail";
 
 // ── Изменение активной тренировки ───────────────────────
@@ -334,10 +337,12 @@ function ExerciseMenu({ session, se, index, onClose }: { session: WorkoutSession
     <Sheet title={ex?.name ?? "Упражнение"} onClose={onClose}>
       {mode === "menu" && (
         <div className="list">
-          <button className="list-item" onClick={() => setMode("swap")}>
-            <Icon name="swap" />
-            <span className="grow">Заменить аналогом</span>
-          </button>
+          {!se.circuit && (
+            <button className="list-item" onClick={() => setMode("swap")}>
+              <Icon name="swap" />
+              <span className="grow">Заменить аналогом</span>
+            </button>
+          )}
           <button className="list-item" onClick={() => setMode("note")}>
             <Icon name="note" />
             <span className="grow">Заметка</span>
@@ -396,57 +401,6 @@ function ExerciseMenu({ session, se, index, onClose }: { session: WorkoutSession
   );
 }
 
-// ── Итог ───────────────────────────────────────────────
-export function SummaryView({ session, prs, onDone }: { session: WorkoutSession; prs: SessionPR[]; onDone: () => void }) {
-  const dur = (session.endedAt ?? Date.now()) - session.startedAt;
-  const sets = sessionDoneSets(session);
-  return (
-    <div className="screen" style={{ paddingTop: 24 }}>
-      <span className="eyebrow">Тренировка завершена</span>
-      <h1 className="hero-title">{session.title}</h1>
-      <div className="stats">
-        <div className="stat card tight">
-          <span className="v">{fmtDuration(dur)}</span>
-          <span className="k">время</span>
-        </div>
-        <div className="stat card tight">
-          <span className="v">{sets}</span>
-          <span className="k">{plural(sets, ["подход", "подхода", "подходов"])}</span>
-        </div>
-        <div className="stat card tight">
-          <span className="v">{fmtTonnage(sessionVolume(session))}</span>
-          <span className="k">объём</span>
-        </div>
-      </div>
-      {prs.length > 0 ? (
-        <section className="section">
-          <div className="section-head">
-            <h2>Новые рекорды</h2>
-          </div>
-          <div className="list">
-            {prs.map((pr) => (
-              <div key={pr.exerciseId + pr.kind} className="list-item">
-                <Icon name="trophy" className="chev" />
-                <div className="grow">
-                  <div className="title">{EXERCISE_BY_ID[pr.exerciseId]?.name}</div>
-                  <div className="sub">
-                    {RECORD_LABEL[pr.kind]}: {fmtRecord(pr.kind, pr.previous)} → <b style={{ color: "var(--accent)" }}>{fmtRecord(pr.kind, pr.value)}</b>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-      ) : (
-        <p className="dim small">Рекордов в этот раз нет — это нормально. Главное — регулярность.</p>
-      )}
-      <button className="btn primary big block" onClick={onDone}>
-        Готово
-      </button>
-    </div>
-  );
-}
-
 // ── Экран тренировки ────────────────────────────────────
 export function WorkoutOverlay() {
   const nav = useNav();
@@ -455,7 +409,7 @@ export function WorkoutOverlay() {
   const [infoFor, setInfoFor] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [confirm, setConfirm] = useState<"finish" | "abandon" | null>(null);
-  const [summary, setSummary] = useState<{ session: WorkoutSession; prs: SessionPR[] } | null>(null);
+  const [summary, setSummary] = useState<{ session: WorkoutSession; prs: SessionPR[]; review: SessionReview; dayName: string | null; nextDayName: string | null } | null>(null);
   const [notes, setNotes] = useState(session?.notes ?? "");
   const finishing = useRef(false);
   const now = useNow(1000);
@@ -490,6 +444,9 @@ export function WorkoutOverlay() {
           <SummaryView
             session={summary.session}
             prs={summary.prs}
+            review={summary.review}
+            dayName={summary.dayName}
+            nextDayName={summary.nextDayName}
             onDone={() => {
               setSummary(null);
               nav.closeWorkout();
@@ -510,9 +467,20 @@ export function WorkoutOverlay() {
     finishing.current = true;
     setRest(null);
     const saved = await finishWorkout(getState().sessions[session.id]);
-    const prs = sessionPRs(saved, liveSessions(getState()), EXERCISE_BY_ID);
-    setSummary({ session: saved, prs });
+    const st = getState();
+    const prs = sessionPRs(saved, liveSessions(st), EXERCISE_BY_ID);
+    const program = programById(st, saved.programId);
+    const day = program && saved.dayIndex != null ? program.days[saved.dayIndex] : null;
+    const en = st.meta.enrollment;
+    const nextDay = program && en?.programId === program.id ? program.days[en.nextDayIndex % program.days.length] : null;
+    const review = reviewSession(saved, EXERCISE_BY_ID, { profile: st.meta.profile, plannedMin: program?.kind === "program" ? program.minutes : null, dayName: day?.name ?? null, nextDayName: nextDay?.name ?? null });
+    setSummary({ session: saved, prs, review, dayName: day?.name ?? null, nextDayName: nextDay?.name ?? null });
     finishing.current = false;
+  };
+
+  const discard = () => {
+    setRest(null);
+    void abandonWorkout(session).then(() => nav.closeWorkout());
   };
 
   return (
@@ -526,7 +494,7 @@ export function WorkoutOverlay() {
               <span className="clock" aria-label="Время тренировки" style={{ alignSelf: "center", paddingRight: 4 }}>
                 {fmtClock((now - session.startedAt) / 1000)}
               </span>
-              <button className="btn primary small" onClick={() => setConfirm("finish")} disabled={!doneSets}>
+              <button className="btn primary small" onClick={() => setConfirm("finish")}>
                 <Icon name="flag" size={16} /> Завершить
               </button>
             </>
@@ -539,9 +507,13 @@ export function WorkoutOverlay() {
               <span className="small">Добавь упражнения из библиотеки.</span>
             </div>
           )}
-          {session.exercises.map((se, i) => (
-            <ExerciseCard key={se.id} session={session} se={se} index={i} total={session.exercises.length} onMenu={() => setMenuFor(se.id)} onInfo={() => setInfoFor(se.exerciseId)} />
-          ))}
+          {session.exercises.map((se, i) =>
+            se.circuit ? (
+              <CircuitCard key={se.id} session={session} se={se} index={i} total={session.exercises.length} now={now} onMenu={() => setMenuFor(se.id)} onInfo={() => setInfoFor(se.exerciseId)} />
+            ) : (
+              <ExerciseCard key={se.id} session={session} se={se} index={i} total={session.exercises.length} onMenu={() => setMenuFor(se.id)} onInfo={() => setInfoFor(se.exerciseId)} />
+            ),
+          )}
           <button className="btn block" onClick={() => setAdding(true)}>
             <Icon name="plus" size={18} /> Добавить упражнение
           </button>
@@ -593,25 +565,31 @@ export function WorkoutOverlay() {
           }}
         />
       )}
-      {confirm === "finish" && (
-        <Confirm
-          title="Завершить тренировку?"
-          text={pending ? `Невыполненные подходы (${pending}) не сохранятся.` : "Все подходы выполнены. Отличная работа!"}
-          confirmLabel="Завершить"
-          onConfirm={finish}
-          onClose={() => setConfirm(null)}
-        />
-      )}
+      {confirm === "finish" &&
+        (doneSets ? (
+          <Confirm
+            title="Завершить тренировку?"
+            text={pending ? `Невыполненные подходы (${pending}) не сохранятся. Дальше покажу сводку: что сделано по плану и что можно добить.` : "Все подходы выполнены. Отличная работа!"}
+            confirmLabel="Завершить"
+            onConfirm={finish}
+            onClose={() => setConfirm(null)}
+          />
+        ) : (
+          <Confirm
+            title="Завершить без сохранения?"
+            text="Ни одного подхода не отмечено, поэтому в истории сохранять нечего. Программа останется на этом же дне."
+            confirmLabel="Завершить"
+            onConfirm={discard}
+            onClose={() => setConfirm(null)}
+          />
+        ))}
       {confirm === "abandon" && (
         <Confirm
           title="Отменить тренировку?"
           text="Записанные подходы этой тренировки удалятся."
           confirmLabel="Отменить тренировку"
           danger
-          onConfirm={() => {
-            setRest(null);
-            void abandonWorkout(session).then(() => nav.closeWorkout());
-          }}
+          onConfirm={discard}
           onClose={() => setConfirm(null)}
         />
       )}

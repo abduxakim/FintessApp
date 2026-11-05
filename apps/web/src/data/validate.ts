@@ -11,8 +11,21 @@ function isSet(v: unknown): boolean {
   return isObj(v) && isStr(v.id) && typeof v.done === "boolean" && isNumOrNull(v.weight) && isNumOrNull(v.reps) && isNumOrNull(v.repsL) && isNumOrNull(v.repsR) && isNumOrNull(v.durationSec);
 }
 
+function isCircuit(v: unknown): boolean {
+  return v === undefined || (isObj(v) && Array.isArray(v.stations) && v.stations.length <= 10 && v.stations.every((st) => isObj(st) && isStr(st.exerciseId, 80) && isNum(st.reps)));
+}
+
 function isSessionExercise(v: unknown): boolean {
-  return isObj(v) && isStr(v.id) && isStr(v.exerciseId, 80) && Array.isArray(v.sets) && v.sets.length <= 50 && v.sets.every(isSet) && (v.notes === undefined || isStr(v.notes, 2000));
+  return (
+    isObj(v) &&
+    isStr(v.id) &&
+    isStr(v.exerciseId, 80) &&
+    Array.isArray(v.sets) &&
+    v.sets.length <= 100 &&
+    v.sets.every(isSet) &&
+    (v.notes === undefined || isStr(v.notes, 2000)) &&
+    isCircuit(v.circuit)
+  );
 }
 
 export function isSession(v: unknown): v is WorkoutSession {

@@ -5,6 +5,7 @@ import { EXERCISES, EXERCISE_BY_ID } from "../../data/catalog";
 import { Chip, MedicalNote, Note, NumField, Segmented, Sheet } from "../../ui/kit";
 import { Icon } from "../../ui/icons";
 import { uuidv7 } from "../../domain/ids";
+import { StationPicker } from "../workout/Circuit";
 
 export type Patch = (p: Partial<Profile>) => void;
 
@@ -306,6 +307,100 @@ export function BaselinesSection({ p, set }: { p: Profile; set: Patch }) {
         <NumField id="dips" label="Брусья, максимум" suffix="раз" step="int" value={b.dips} onChange={(v) => setB({ dips: v })} />
       </div>
       <NumField id="pushups" label="Отжимания, максимум" suffix="раз" step="int" value={b.pushups} onChange={(v) => setB({ pushups: v })} />
+    </div>
+  );
+}
+
+export function CircuitSection({ p, set }: { p: Profile; set: Patch }) {
+  const c = p.circuit;
+  const setC = (patch: Partial<Profile["circuit"]>) => set({ circuit: { ...c, ...patch, configured: true } });
+  const [pick, setPick] = useState<number | null>(null);
+  return (
+    <div className="stack gap-l">
+      <label className="row">
+        <input type="checkbox" checked={c.enabled} onChange={(e) => setC({ enabled: e.target.checked })} />
+        Добавлять круг в программные тренировки
+      </label>
+      <div className="field">
+        <span className="label">Где</span>
+        <Segmented
+          id="circuit-pos"
+          value={c.position}
+          onChange={(v) => setC({ position: v })}
+          options={[
+            { value: "start", label: "После разминки" },
+            { value: "end", label: "В конце" },
+          ]}
+        />
+        <span className="xs muted">
+          В начале круг работает как интенсивная разминка, но 25–40 подтягиваний и 50–80 отжиманий заранее утомляют спину и грудь — рабочие веса в основных упражнениях будут ниже. В конце он работает как добивка на выносливость и рельеф и не мешает силовой части.
+        </span>
+      </div>
+      <div className="field">
+        <span className="label">Станции</span>
+        <div className="list">
+          {c.stations.map((st, i) => (
+            <div key={i} className="list-item">
+              <input
+                className="input num"
+                style={{ width: 64, textAlign: "center" }}
+                inputMode="numeric"
+                aria-label={`Повторы, станция ${i + 1}`}
+                defaultValue={st.reps}
+                onBlur={(e) => {
+                  const n = Math.round(Number(e.target.value.replace(",", ".")));
+                  if (n > 0 && n <= 100) setC({ stations: c.stations.map((x, j) => (j === i ? { ...x, reps: n } : x)) });
+                  else e.target.value = String(st.reps);
+                }}
+              />
+              <button type="button" className="grow" style={{ background: "none", border: 0, textAlign: "left", padding: 0 }} onClick={() => setPick(i)}>
+                <div className="title">{EXERCISE_BY_ID[st.exerciseId]?.name}</div>
+                <div className="sub">Нажми, чтобы сменить вариацию</div>
+              </button>
+              <Icon name="swap" size={18} className="chev" />
+            </div>
+          ))}
+        </div>
+        <span className="xs muted">Вариации можно менять и прямо на тренировке — приложение запомнит последние.</span>
+      </div>
+      <div className="field">
+        <span className="label">Цель</span>
+        <Segmented
+          id="circuit-target"
+          value={c.targetRounds ?? 0}
+          onChange={(v) => setC({ targetRounds: v || null })}
+          options={[
+            { value: 0, label: "Сколько успею" },
+            { value: 3, label: "3" },
+            { value: 5, label: "5" },
+            { value: 8, label: "8" },
+          ]}
+        />
+      </div>
+      <div className="field">
+        <span className="label">Лимит времени</span>
+        <Segmented
+          id="circuit-cap"
+          value={c.timeCapMin ?? 0}
+          onChange={(v) => setC({ timeCapMin: v || null })}
+          options={[
+            { value: 0, label: "Без лимита" },
+            { value: 10, label: "10 мин" },
+            { value: 20, label: "20 мин" },
+          ]}
+        />
+      </div>
+      {pick != null && (
+        <StationPicker
+          station={c.stations[pick]}
+          index={pick}
+          onClose={() => setPick(null)}
+          onPick={(id) => {
+            setC({ stations: c.stations.map((x, j) => (j === pick ? { ...x, exerciseId: id } : x)) });
+            setPick(null);
+          }}
+        />
+      )}
     </div>
   );
 }

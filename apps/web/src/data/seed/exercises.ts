@@ -469,6 +469,13 @@ export const EXERCISES: Exercise[] = [
     mistakes: ["Колено уходит внутрь", "Короткий шаг"],
   }),
   ex({
+    id: "kneeling_db_lunge", name: "Выпады с колена с гантелями", nameEn: "Dumbbell split squat from knee", category: "strength", pattern: "lunge",
+    primary: ["quads", "glutes"], secondary: ["adductors", "hamstrings"], equipment: ["dumbbell"], locations: GH, unilateral: true,
+    difficulty: 2, tracking: "weight_reps", loadStep: 2,
+    technique: "Старт стоя на одном колене, гантели в руках. Встань в выпад, толкаясь передней ногой, и подконтрольно опустись обратно до касания коленом пола (на коврике). Корпус ровный.",
+    mistakes: ["Удар коленом об пол", "Толчок задней ногой вместо передней", "Наклон корпуса вперёд"],
+  }),
+  ex({
     id: "leg_curl", name: "Сгибание ног в тренажёре", nameEn: "Leg curl", category: "strength", pattern: "knee_flexion",
     primary: ["hamstrings"], secondary: ["calves"], equipment: ["machine"], locations: G, mechanics: "isolation",
     difficulty: 1, tracking: "weight_reps", loadStep: 5,
@@ -595,6 +602,38 @@ export const EXERCISES: Exercise[] = [
     difficulty: 5, tracking: "reps", review: "check",
     technique: "Взрывное подтягивание к поясу с переходом корпуса над перекладиной и дожимом. Обычно осваивают после 10+ чистых подтягиваний и 15+ отжиманий на брусьях, лучше под контролем тренера.",
     mistakes: ["Рывок «через одну руку»", "Попытки без базовой силы", "Хват без контроля запястий"],
+  }),
+
+  // ── Предплечья ──────────────────────────────────────
+  ex({
+    id: "wrist_curl", name: "Сгибание кистей с гантелями", nameEn: "Dumbbell wrist curl", category: "strength", pattern: "wrist",
+    primary: ["forearms"], secondary: [], equipment: ["dumbbell", "bench"], locations: GH, mechanics: "isolation",
+    difficulty: 1, tracking: "weight_reps", loadStep: 1,
+    technique: "Предплечья на скамье или бёдрах, кисти свисают ладонями вверх. Опусти гантель к пальцам и сгибай кисть вверх, предплечье неподвижно. Медленный темп.",
+    mistakes: ["Слишком тяжёлый вес и рывки", "Движение предплечьем, а не кистью"],
+  }),
+  ex({
+    id: "reverse_wrist_curl", name: "Разгибание кистей с гантелями", nameEn: "Reverse wrist curl", category: "strength", pattern: "wrist",
+    primary: ["forearms"], secondary: [], equipment: ["dumbbell", "bench"], locations: GH, mechanics: "isolation",
+    difficulty: 1, tracking: "weight_reps", loadStep: 0.5,
+    technique: "Как сгибание, но ладонями вниз. Поднимай тыльную сторону кисти вверх. Вес заметно меньше, чем в сгибаниях.",
+    mistakes: ["Слишком большой вес", "Короткая амплитуда"],
+  }),
+  ex({
+    id: "reverse_curl", name: "Подъём на бицепс обратным хватом", nameEn: "Reverse curl", category: "strength", pattern: "biceps",
+    primary: ["forearms", "biceps"], secondary: [], equipment: ["ez_bar"], locations: G, mechanics: "isolation",
+    difficulty: 1, tracking: "weight_reps", loadStep: 2.5,
+    technique: "Хват сверху на ширине плеч. Сгибай руки, локти прижаты, запястья прямые. Нагружает плечелучевую мышцу и разгибатели кисти.",
+    mistakes: ["Запястья проваливаются вниз", "Раскачка корпусом"],
+  }),
+
+  // ── Круговой блок ───────────────────────────────────
+  ex({
+    id: "circuit_5_10_15", name: "Круг 5-10-15", nameEn: "5-10-15 circuit (Cindy)", category: "calisthenics", pattern: "circuit",
+    primary: ["lats", "chest", "quads"], secondary: ["biceps", "triceps", "glutes", "abs"], equipment: ["pullup_bar"], locations: GO,
+    difficulty: 3, tracking: "rounds",
+    technique: "Один круг: 5 подтягиваний, 10 отжиманий, 15 приседаний подряд. Делай столько кругов, сколько получается в своём темпе, или ставь лимит 20 минут (в кроссфите такой формат называют «Cindy»). Станции можно заменить вариациями: отжимания на брусьях, приседания с весом, выпады.",
+    mistakes: ["Техника разваливается к последним кругам — лучше остановиться", "Подтягивания рывками ради скорости", "Неполные отжимания и приседания"],
   }),
 
   // ── Разминка, мобильность, растяжка ─────────────────

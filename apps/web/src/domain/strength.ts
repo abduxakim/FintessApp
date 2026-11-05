@@ -39,9 +39,10 @@ export function sessionVolume(session: WorkoutSession): number {
   return v;
 }
 
+/** Выполненные рабочие подходы. Круги кругового блока считаются отдельно (см. sessionRounds). */
 export function sessionDoneSets(session: WorkoutSession): number {
   let n = 0;
-  for (const ex of session.exercises) for (const s of ex.sets) if (s.done && s.type === "work") n++;
+  for (const ex of session.exercises) if (!ex.circuit) for (const s of ex.sets) if (s.done && s.type === "work") n++;
   return n;
 }
 
@@ -49,4 +50,10 @@ export function isDoneSetMeaningful(s: SetLog, exercise: Exercise | undefined): 
   if (!s.done) return false;
   if (exercise?.tracking === "time") return (s.durationSec ?? 0) > 0;
   return (setReps(s) ?? 0) > 0;
+}
+
+export function sessionRounds(session: WorkoutSession): number {
+  let n = 0;
+  for (const ex of session.exercises) if (ex.circuit) n += ex.sets.filter((s) => s.done).length;
+  return n;
 }

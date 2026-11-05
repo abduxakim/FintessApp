@@ -1,7 +1,7 @@
 import React from "react";
 import type { Exercise, SetLog } from "../../data/types";
 import type { ExerciseRecords, RecordKind } from "../../domain/history";
-import { fmtKg, fmtShort } from "../../domain/format";
+import { fmtKg, fmtShort, plural } from "../../domain/format";
 
 /** «60×8 · 60×7», «П10/Л10 × 20», «40 с». */
 export function fmtSet(s: SetLog, ex: Exercise | undefined): string {
@@ -11,6 +11,11 @@ export function fmtSet(s: SetLog, ex: Exercise | undefined): string {
 }
 
 export function fmtSets(sets: SetLog[], ex: Exercise | undefined): string {
+  if (ex?.tracking === "rounds") {
+    const n = sets.filter((s) => s.done).length;
+    return `${n} ${plural(n, ["круг", "круга", "кругов"])}`;
+  }
+  if (!sets.length) return "пропущено";
   return sets.map((s) => fmtSet(s, ex)).join(" · ");
 }
 
@@ -19,16 +24,18 @@ export const RECORD_LABEL: Record<RecordKind, string> = {
   weight: "Макс. вес",
   reps: "Макс. повторов",
   duration: "Макс. время",
+  rounds: "Больше всего кругов",
 };
 
 export function fmtRecord(kind: RecordKind, value: number): string {
   if (kind === "reps") return `${value}`;
   if (kind === "duration") return `${value} с`;
+  if (kind === "rounds") return `${value}`;
   return `${fmtKg(Math.round(value * 2) / 2)} кг`;
 }
 
 export function RecordsLine({ rec, tracking }: { rec: ExerciseRecords; tracking: Exercise["tracking"] }) {
-  const kinds: RecordKind[] = tracking === "time" ? ["duration"] : tracking === "reps" ? ["reps", "weight"] : ["weight", "e1rm", "reps"];
+  const kinds: RecordKind[] = tracking === "rounds" ? ["rounds"] : tracking === "time" ? ["duration"] : tracking === "reps" ? ["reps", "weight"] : ["weight", "e1rm", "reps"];
   const items = kinds.map((k) => rec[k]).filter(Boolean);
   if (!items.length) return null;
   return (
