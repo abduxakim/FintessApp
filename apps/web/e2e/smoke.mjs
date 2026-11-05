@@ -304,6 +304,10 @@ try {
   // ── Фото тренажёра → упражнения в план ──
   await page.getByRole("button", { name: "По фото тренажёра" }).click();
   const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAEAAAAAwCAIAAAAuKetIAAAAU0lEQVR4nO3PsQ3AIADAMOBqZmaO7hEMVqX4gmTuc8efLR3wqgGtAa0BrQGtAa0BrQGtAa0BrQGtAa0BrQGtAa0BrQGtAa0BrQGtAa0BrQGtAe0DDtIB5uQ/i7MAAAAASUVORK5CYII=", "base64");
+  check(
+    "галерея открывается без принудительной камеры",
+    (await page.getAttribute("#photo-file", "capture")) === null && (await page.getAttribute("#photo-camera", "capture")) === "environment",
+  );
   await page.setInputFiles("#photo-file", { name: "machine.png", mimeType: "image/png", buffer: png });
   await page.getByRole("button", { name: "Распознать" }).click();
   await page.getByText("Тренажёр для жима ногами").waitFor();

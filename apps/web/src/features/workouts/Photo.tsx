@@ -17,7 +17,9 @@ const CONF = { high: ["good", "уверенно"], medium: ["", "скорее в
 
 export function PhotoScreen() {
   const nav = useNav();
+  // Два поля: камера (capture) и галерея (без capture — Android предложит выбрать файл из галереи).
   const fileRef = useRef<HTMLInputElement>(null);
+  const cameraRef = useRef<HTMLInputElement>(null);
   const ctl = useRef<AbortController | null>(null);
   const [img, setImg] = useState<{ blob: Blob; url: string } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -111,35 +113,44 @@ export function PhotoScreen() {
       <TopBar title="Тренажёр по фото" onBack={nav.back} />
       <div className="screen">
         <p className="dim">Сфотографируй тренажёр целиком — приложение определит, что это, и предложит упражнения на нём.</p>
-        <input
-          ref={fileRef}
-          id="photo-file"
-          type="file"
-          accept="image/*"
-          capture="environment"
-          hidden
-          onChange={(e) => {
-            const f = e.target.files?.[0];
-            if (f) void onFile(f);
-            e.target.value = "";
-          }}
-        />
+        {[
+          { ref: cameraRef, id: "photo-camera", capture: true },
+          { ref: fileRef, id: "photo-file", capture: false },
+        ].map((f) => (
+          <input
+            key={f.id}
+            ref={f.ref}
+            id={f.id}
+            type="file"
+            accept="image/*"
+            {...(f.capture ? { capture: "environment" as const } : {})}
+            hidden
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) void onFile(file);
+              e.target.value = "";
+            }}
+          />
+        ))}
         {img ? (
           <img src={img.url} alt="Фото тренажёра" className="photo-preview" />
         ) : (
-          <button className="empty" onClick={() => fileRef.current?.click()} style={{ alignItems: "center", width: "100%" }}>
+          <div className="empty" style={{ alignItems: "center" }}>
             <Icon name="camera" size={28} />
-            <b>Сделать или выбрать фото</b>
-          </button>
+            <b>Сфотографируй тренажёр или выбери фото из галереи</b>
+          </div>
         )}
         <div className="grid-2">
-          <button className="btn" onClick={() => fileRef.current?.click()} disabled={busy}>
-            <Icon name="camera" size={18} /> {img ? "Другое фото" : "Фото"}
+          <button className="btn" onClick={() => cameraRef.current?.click()} disabled={busy}>
+            <Icon name="camera" size={18} /> Камера
           </button>
-          <button className="btn primary" onClick={recognize} disabled={!img || busy}>
-            <Icon name="spark" size={18} /> Распознать
+          <button className="btn" onClick={() => fileRef.current?.click()} disabled={busy}>
+            <Icon name="upload" size={18} /> Галерея
           </button>
         </div>
+        <button className="btn primary big block" onClick={recognize} disabled={!img || busy}>
+          <Icon name="spark" size={18} /> Распознать
+        </button>
         {busy && (
           <div className="card tight">
             <p className="small">Claude смотрит на фото… обычно 10–40 секунд</p>
