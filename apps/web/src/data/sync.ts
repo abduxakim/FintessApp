@@ -1,0 +1,200 @@
+// Синхронизация с личным облачным хранилищем артефакта (capability `db`).
+//
+// Пути (только владелец данных может их читать — `data/users/<id>/` приватен на уровне платформы):
+//   data/users/<uid>/fitness                 — документ: профиль, активная программа (meta)
+//   data/users/<uid>/fitness/sessions/<id>   — по документу на тренировку (с упражнениями и подходами)
+//   data/users/<uid>/fitness/programs/<id>   — свои программы (этап 2)
+//
+// Правило конфликтов: побеждает запись с бо́льшим updatedAt (last-writer-wins). Пользователь один,
+// одновременные правки с двух устройств редки.
+import { capability, type CollectionRef, type Db, type DbError, type DocRef, type DocSnap, type UserCap } from "./runtime";
+import { ackOutbox, applyRemote, finishBootstrap, getEntity, getState, outboxEntries, requeue, setLocalChangeHandler, setSyncStatus, type EntityKind, type OutboxEntry } from "./store";
+import { isMeta, isProgram, isSession } from "./validate";
+import { idb } from "./idb";
+
+const PAGE = 300;
+const FLUSH_DELAY = 1500;
+
+let root: DocRef | null = null;
+let sessionsCol: CollectionRef | null = null;
+let programsCol: CollectionRef | null = null;
+let flushTimer: ReturnType<typeof setTimeout> | null = null;
+let flushing = false;
+let pulling = false;
+let backoffUntil = 0;
+
+function clean(v: unknown): Record<string, unknown> {
+  // Облако принимает только JSON: убираем undefined и прочее.
+  return JSON.parse(JSON.stringify(v));
+}
+
+function errCode(e: unknown): string {
+  return (e as DbError)?.code ?? "unavailable";
+}
+
+export async function startSync(): Promise<void> {
+  setLocalChangeHandler(() => scheduleFlush());
+  // Не ждём облако дольше 6 секунд: дальше работаем локально, синхронизация догонит.
+  setTimeout(finishBootstrap, 6000);
+  const db = await capability<Db>("db");
+  const user = await capability<UserCap>("user");
+  const uid = user ? await user.id().catch(() => null) : null;
+  if (!db || !uid) {
+    setSyncStatus({ mode: "off", message: "Облако недоступно: данные хранятся только на этом устройстве" });
+    finishBootstrap();
+    return;
+  }
+  try {
+    root = db.doc(`data/users/${uid}/fitness`);
+    sessionsCol = root.collection("sessions");
+    programsCol = root.collection("programs");
+  } catch {
+    setSyncStatus({ mode: "error", message: "Не удалось открыть облачное хранилище" });
+    finishBootstrap();
+    return;
+  }
+  await syncNow();
+  finishBootstrap();
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") void syncNow();
+  });
+  window.addEventListener("online", () => void syncNow());
+}
+
+export async function syncNow(): Promise<void> {
+  if (!root) return;
+  await pull();
+  await flush();
+}
+
+async function readAll(col: CollectionRef, since: number): Promise<DocSnap[]> {
+  const out: DocSnap[] = [];
+  let cursor = since;
+  const seen = new Set<string>();
+  for (let guard = 0; guard < 100; guard++) {
+    const snap = await col.where("updatedAt", ">=", cursor).orderBy("updatedAt", "asc").limit(PAGE).get();
+    let fresh = 0;
+    for (const d of snap.docs) {
+      if (seen.has(d.id)) continue;
+      seen.add(d.id);
+      out.push(d);
+      fresh++;
+      const u = d.data()?.updatedAt;
+      if (typeof u === "number" && u > cursor) cursor = u;
+    }
+    if (snap.size < PAGE || fresh === 0) break;
+  }
+  return out;
+}
+
+async function pull(): Promise<void> {
+  if (!root || !sessionsCol || !programsCol || pulling) return;
+  pulling = true;
+  setSyncStatus({ mode: "connecting" });
+  try {
+    const lastPull = ((await idb.get<number>("kv", "lastPullAt")) ?? 0) as number;
+    // Небольшой запас на расхождение часов между устройствами.
+    const since = Math.max(0, lastPull - 10 * 60 * 1000);
+    let maxSeen = lastPull;
+
+    const metaSnap = await root.get();
+    const remoteMeta = metaSnap.exists ? metaSnap.data()?.data : undefined;
+    if (isMeta(remoteMeta)) {
+      const changed = await applyRemote("meta", remoteMeta);
+      if (!changed && getState().meta.updatedAt > remoteMeta.updatedAt) await requeue("meta", "meta");
+    } else if (getState().meta.rev > 0) {
+      await requeue("meta", "meta");
+    }
+
+    const remoteIds = { session: new Set<string>(), program: new Set<string>() };
+    for (const [kind, col, guard] of [
+      ["session", sessionsCol, isSession],
+      ["program", programsCol, isProgram],
+    ] as const) {
+      const docs = await readAll(col, since);
+      for (const d of docs) {
+        const body = d.data()?.data;
+        if (!(guard as (v: unknown) => boolean)(body)) continue;
+        const entity = body as { id: string; updatedAt: number };
+        remoteIds[kind].add(entity.id);
+        maxSeen = Math.max(maxSeen, entity.updatedAt);
+        const changed = await applyRemote(kind, entity as never);
+        const local = getEntity(kind, entity.id);
+        if (!changed && local && (local.updatedAt ?? 0) > entity.updatedAt) await requeue(kind, entity.id);
+      }
+    }
+
+    // Первая синхронизация на устройстве: всё локальное, чего нет в облаке, отправляем.
+    if (lastPull === 0) {
+      const st = getState();
+      for (const s of Object.values(st.sessions)) if (!remoteIds.session.has(s.id)) await requeue("session", s.id);
+      for (const p of Object.values(st.programs)) if (!remoteIds.program.has(p.id)) await requeue("program", p.id);
+    }
+
+    await idb.put("kv", Math.max(maxSeen, Date.now() - 60 * 1000), "lastPullAt");
+    setSyncStatus({ mode: "on", lastSyncAt: Date.now(), message: null });
+  } catch (e) {
+    handleError(e);
+  } finally {
+    pulling = false;
+  }
+}
+
+function refFor(entry: OutboxEntry): DocRef | null {
+  if (!root || !sessionsCol || !programsCol) return null;
+  if (entry.kind === "meta") return root;
+  return (entry.kind === "session" ? sessionsCol : programsCol).doc(entry.id);
+}
+
+export function scheduleFlush(delay = FLUSH_DELAY): void {
+  if (!root) return;
+  if (flushTimer) clearTimeout(flushTimer);
+  flushTimer = setTimeout(() => void flush(), Math.max(delay, backoffUntil - Date.now()));
+}
+
+async function flush(): Promise<void> {
+  if (!root || flushing) return;
+  if (Date.now() < backoffUntil) return scheduleFlush();
+  flushing = true;
+  try {
+    // Одна запись за раз на документ: идём по очереди последовательно.
+    for (const entry of outboxEntries()) {
+      const entity = getEntity(entry.kind as EntityKind, entry.id);
+      const ref = refFor(entry);
+      if (!entity || !ref) {
+        await ackOutbox(entry);
+        continue;
+      }
+      await ref.set(clean({ v: 1, kind: entry.kind, updatedAt: entity.updatedAt ?? 0, data: entity }));
+      await ackOutbox({ ...entry, updatedAt: entity.updatedAt ?? 0 });
+    }
+    setSyncStatus({ mode: "on", lastSyncAt: Date.now(), message: null });
+  } catch (e) {
+    handleError(e);
+  } finally {
+    flushing = false;
+    // Если за время отправки появились новые изменения — отправим их следом.
+    if (root && outboxEntries().length && Date.now() >= backoffUntil && getState().sync.mode === "on") scheduleFlush();
+  }
+}
+
+function handleError(e: unknown) {
+  const code = errCode(e);
+  if (code === "quota_exceeded") {
+    setSyncStatus({ mode: "error", message: "Облачное хранилище заполнено. Данные сохраняются на устройстве; сделай экспорт." });
+    return;
+  }
+  if (code === "invalid_argument" || code === "transform_error") {
+    setSyncStatus({ mode: "error", message: "Облако отклонило запись. Данные сохранены на устройстве." });
+    return;
+  }
+  if (code === "revoked" || code === "not_granted" || code === "capability_disabled" || code === "capability_removed") {
+    root = null;
+    setSyncStatus({ mode: "off", message: "Доступ к облаку закрыт в этом окне. Данные хранятся на устройстве." });
+    return;
+  }
+  // unavailable, resource_exhausted, сеть: повторим позже.
+  backoffUntil = Date.now() + (code === "resource_exhausted" ? 60_000 : 15_000);
+  setSyncStatus({ mode: "connecting", message: "Нет связи с облаком — изменения отправятся позже" });
+  scheduleFlush();
+}
