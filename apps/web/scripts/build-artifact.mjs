@@ -1,6 +1,7 @@
 // Собирает один HTML-фрагмент для публикации артефактом (платформа сама оборачивает его в <html><body>).
 // Шрифты встраиваются как data: URI — никаких внешних запросов, кроме React с cdnjs.
 import { readFileSync, writeFileSync, readdirSync, mkdirSync, copyFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -28,8 +29,11 @@ const cssFile = readdirSync(dist).find((f) => f.endsWith(".css"));
 const css = cssFile ? readFileSync(join(dist, cssFile), "utf8") : "";
 const js = readFileSync(join(dist, "app.js"), "utf8").replace(/<\/script/gi, "<\\/script");
 
-const REACT = "https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js";
-const REACT_DOM = "https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js";
+// jsDelivr отдаёт файлы npm-пакета байт-в-байт, поэтому хэш целостности (SRI) считаем по локальной копии.
+const sri = (file) => "sha384-" + createHash("sha384").update(readFileSync(join(root, "node_modules", file))).digest("base64");
+const REACT = { src: "https://cdn.jsdelivr.net/npm/react@18.3.1/umd/react.production.min.js", integrity: sri("react/umd/react.production.min.js") };
+const REACT_DOM = { src: "https://cdn.jsdelivr.net/npm/react-dom@18.3.1/umd/react-dom.production.min.js", integrity: sri("react-dom/umd/react-dom.production.min.js") };
+const tag = (s) => (typeof s === "string" ? `<script src="${s}"></script>` : `<script src="${s.src}" integrity="${s.integrity}" crossorigin="anonymous"></script>`);
 
 const head = `<title>Подход</title>
 <meta name="claude:viewport-fit-sides" content="cover">
@@ -42,8 +46,8 @@ ${fontCss}
 ${css}
 </style>
 <div id="root"></div>
-<script src="${react}"></script>
-<script src="${reactDom}"></script>
+${tag(react)}
+${tag(reactDom)}
 <script>
 ${js}
 </script>

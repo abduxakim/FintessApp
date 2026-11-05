@@ -461,15 +461,20 @@ export function WorkoutOverlay() {
   const now = useNow(1000);
 
   useEffect(() => {
+    // Экран не гаснет во время тренировки; после сворачивания блокировку нужно запросить снова.
     let lock: { release(): Promise<void> } | null = null;
-    (async () => {
+    const acquire = async () => {
       try {
-        lock = await (navigator as unknown as { wakeLock?: { request(t: string): Promise<{ release(): Promise<void> }> } }).wakeLock?.request("screen") ?? null;
+        lock = (await (navigator as unknown as { wakeLock?: { request(t: string): Promise<{ release(): Promise<void> }> } }).wakeLock?.request("screen")) ?? null;
       } catch {
         lock = null;
       }
-    })();
+    };
+    const onVisible = () => document.visibilityState === "visible" && void acquire();
+    void acquire();
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
+      document.removeEventListener("visibilitychange", onVisible);
       void lock?.release().catch(() => undefined);
     };
   }, []);

@@ -691,7 +691,8 @@ export const EXERCISES: Exercise[] = [
   }),
 ];
 
-export const EXERCISE_BY_ID: Record<string, Exercise> = Object.fromEntries(EXERCISES.map((e) => [e.id, e]));
+/** Без прототипа: id из облака или импорта вроде "constructor" не найдут чужих свойств. */
+export const EXERCISE_BY_ID: Record<string, Exercise> = Object.assign(Object.create(null), Object.fromEntries(EXERCISES.map((e) => [e.id, e])));
 
 /** Прогрессии калистеники: от простого к сложному. Критерии — ориентиры. */
 export const PROGRESSIONS: Progression[] = [

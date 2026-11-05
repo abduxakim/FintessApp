@@ -2,6 +2,7 @@ import React, { useEffect } from "react";
 import { activeSession, loadLocal, useStore } from "../data/store";
 import { startSync } from "../data/sync";
 import { NavProvider, useNav, type Tab } from "./nav";
+import { ErrorBoundary } from "./ErrorBoundary";
 import { Icon } from "../ui/icons";
 import { ToastHost } from "../ui/kit";
 import { Onboarding } from "../features/profile/Onboarding";
@@ -115,8 +116,10 @@ export function App() {
     }
   }, []);
   return (
-    <NavProvider>
-      <Shell />
-    </NavProvider>
+    <ErrorBoundary>
+      <NavProvider>
+        <Shell />
+      </NavProvider>
+    </ErrorBoundary>
   );
 }

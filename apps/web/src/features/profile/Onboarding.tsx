@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import type { Profile } from "../../data/types";
 import { getState, updateMeta } from "../../data/store";
 import { EXERCISES, EXERCISE_BY_ID, PROGRAMS } from "../../data/catalog";
@@ -20,11 +20,20 @@ const STEPS = [
 export function Onboarding() {
   const [step, setStep] = useState(0);
   const [p, setP] = useState<Profile>(() => getState().meta.profile);
-  const set = (patch: Partial<Profile>) => setP((cur) => ({ ...cur, ...patch }));
+  // Актуальный профиль для обработчиков: значения, зафиксированные на blur, не должны теряться.
+  const latest = useRef(p);
+  latest.current = p;
+  const set = (patch: Partial<Profile>) =>
+    setP((cur) => {
+      const next = { ...cur, ...patch };
+      latest.current = next;
+      return next;
+    });
   const recs = useMemo(() => (step === 5 ? recommendPrograms(p, PROGRAMS, EXERCISE_BY_ID, EXERCISES) : []), [step, p]);
 
   const finish = async (programId: string | null) => {
-    await updateMeta((m) => ({ ...m, onboarded: true, profile: p, goalHistory: m.goalHistory.length ? m.goalHistory : [{ goal: p.goal, at: Date.now() }] }));
+    const next = latest.current;
+    await updateMeta((m) => ({ ...m, onboarded: true, profile: next, goalHistory: m.goalHistory.length ? m.goalHistory : [{ goal: next.goal, at: Date.now() }] }));
     if (programId) await enroll(programId);
     window.scrollTo(0, 0);
   };

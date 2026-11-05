@@ -93,8 +93,10 @@ async function pull(): Promise<void> {
   setSyncStatus({ mode: "connecting" });
   try {
     const lastPull = ((await idb.get<number>("kv", "lastPullAt")) ?? 0) as number;
-    // Небольшой запас на расхождение часов между устройствами.
-    const since = Math.max(0, lastPull - 10 * 60 * 1000);
+    const lastFull = ((await idb.get<number>("kv", "lastFullPullAt")) ?? 0) as number;
+    // Раз в сутки — полная выборка (данных мало), иначе инкрементальная с запасом на расхождение часов.
+    const full = Date.now() - lastFull > 24 * 3600 * 1000;
+    const since = full ? 0 : Math.max(0, lastPull - 30 * 60 * 1000);
     let maxSeen = lastPull;
 
     const metaSnap = await root.get();
@@ -131,7 +133,9 @@ async function pull(): Promise<void> {
       for (const p of Object.values(st.programs)) if (!remoteIds.program.has(p.id)) await requeue("program", p.id);
     }
 
-    await idb.put("kv", Math.max(maxSeen, Date.now() - 60 * 1000), "lastPullAt");
+    // Не даём метке уйти в будущее, если часы другого устройства спешат.
+    await idb.put("kv", Math.min(Date.now(), Math.max(maxSeen, Date.now() - 60 * 1000)), "lastPullAt");
+    if (full) await idb.put("kv", Date.now(), "lastFullPullAt");
     setSyncStatus({ mode: "on", lastSyncAt: Date.now(), message: null });
   } catch (e) {
     handleError(e);
@@ -156,6 +160,7 @@ async function flush(): Promise<void> {
   if (!root || flushing) return;
   if (Date.now() < backoffUntil) return scheduleFlush();
   flushing = true;
+  let rejected = 0;
   try {
     // Одна запись за раз на документ: идём по очереди последовательно.
     for (const entry of outboxEntries()) {
@@ -165,10 +170,20 @@ async function flush(): Promise<void> {
         await ackOutbox(entry);
         continue;
       }
-      await ref.set(clean({ v: 1, kind: entry.kind, updatedAt: entity.updatedAt ?? 0, data: entity }));
+      try {
+        await ref.set(clean({ v: 1, kind: entry.kind, updatedAt: entity.updatedAt ?? 0, data: entity }));
+      } catch (e) {
+        // Запись, которую облако отклоняет по содержимому, не должна блокировать остальную очередь.
+        if (errCode(e) === "invalid_argument" || errCode(e) === "transform_error") {
+          rejected++;
+          await ackOutbox({ ...entry, updatedAt: entity.updatedAt ?? 0 });
+          continue;
+        }
+        throw e;
+      }
       await ackOutbox({ ...entry, updatedAt: entity.updatedAt ?? 0 });
     }
-    setSyncStatus({ mode: "on", lastSyncAt: Date.now(), message: null });
+    setSyncStatus({ mode: "on", lastSyncAt: Date.now(), message: rejected ? `Облако не приняло записей: ${rejected}. Они сохранены на устройстве и в экспорте.` : null });
   } catch (e) {
     handleError(e);
   } finally {

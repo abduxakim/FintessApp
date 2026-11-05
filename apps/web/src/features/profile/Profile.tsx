@@ -82,14 +82,23 @@ export function syncLabel(mode: string, pending: number): string {
 export function ProfileEdit({ section }: { section: Section }) {
   const nav = useNav();
   const [p, setP] = useState<Profile>(() => getState().meta.profile);
-  const set = (patch: Partial<Profile>) => setP((cur) => ({ ...cur, ...patch }));
+  // Актуальный профиль для обработчиков: значения, зафиксированные на blur, не должны теряться.
+  const latest = useRef(p);
+  latest.current = p;
+  const set = (patch: Partial<Profile>) =>
+    setP((cur) => {
+      const next = { ...cur, ...patch };
+      latest.current = next;
+      return next;
+    });
   const save = async () => {
     // Сначала дать полям завершить ввод (onBlur), затем сохранить.
     (document.activeElement as HTMLElement | null)?.blur?.();
     await new Promise((r) => setTimeout(r, 0));
+    const next = latest.current;
     await updateMeta((m) => {
-      const goalChanged = m.profile.goal !== p.goal;
-      return { ...m, profile: p, goalHistory: goalChanged ? [...m.goalHistory, { goal: p.goal, at: Date.now() }] : m.goalHistory };
+      const goalChanged = m.profile.goal !== next.goal;
+      return { ...m, profile: next, goalHistory: goalChanged ? [...m.goalHistory, { goal: next.goal, at: Date.now() }] : m.goalHistory };
     });
     toast("Сохранено");
     nav.back();
