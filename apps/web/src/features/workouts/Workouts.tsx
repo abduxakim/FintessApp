@@ -2,7 +2,7 @@ import React from "react";
 import { BLOCKS, PROGRAMS, programById } from "../../data/catalog";
 import { useStore } from "../../data/store";
 import { useNav } from "../../app/nav";
-import { startProgramDay } from "../../app/actions";
+import { createProgram, startProgramDay } from "../../app/actions";
 import { LOCATIONS } from "../../data/seed/labels";
 import { TopBar, toast } from "../../ui/kit";
 import { Icon } from "../../ui/icons";
@@ -13,6 +13,7 @@ export function WorkoutsHome() {
   const state = useStore((s) => s);
   const en = state.meta.enrollment;
   const current = programById(state, en?.programId);
+  const myPrograms = Object.values(state.programs).filter((p) => !p.deletedAt && p.owner === "user").sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
 
   const startBlock = async (b: Program) => {
     await startProgramDay(b, 0);
@@ -30,7 +31,7 @@ export function WorkoutsHome() {
               <div className="grow">
                 <h2 style={{ fontSize: "var(--fs-xl)" }}>{current.name}</h2>
                 <p className="small dim">
-                  Следующая: {current.days[en!.nextDayIndex % current.days.length]?.name} · {current.days[en!.nextDayIndex % current.days.length]?.focus}
+                  Следующая: {[current.days[en!.nextDayIndex % current.days.length]?.name, current.days[en!.nextDayIndex % current.days.length]?.focus].filter(Boolean).join(" · ")}
                 </p>
               </div>
               <Icon name="chev" className="chev" />
@@ -46,18 +47,53 @@ export function WorkoutsHome() {
           </div>
         )}
 
-        <div className="row">
-          <button className="btn grow" onClick={() => nav.push({ name: "library" })}>
+        <div className="grid-2">
+          <button className="btn" onClick={() => nav.push({ name: "library" })}>
             <Icon name="search" size={18} /> Упражнения
           </button>
-          <button className="btn grow" onClick={() => nav.push({ name: "recommend" })}>
-            <Icon name="spark" size={18} /> Подбор
+          <button className="btn" onClick={() => nav.push({ name: "ask" })}>
+            <Icon name="spark" size={18} /> По запросу
           </button>
         </div>
 
         <section className="section">
           <div className="section-head">
+            <h2>Мои программы</h2>
+          </div>
+          {myPrograms.length > 0 && (
+            <div className="list">
+              {myPrograms.map((p) => (
+                <button key={p.id} className="list-item" onClick={() => nav.push({ name: "program-edit", id: p.id })}>
+                  <div className="grow">
+                    <div className="row">
+                      <span className="title">{p.name}</span>
+                      {en?.programId === p.id && <span className="pill accent">активна</span>}
+                    </div>
+                    <div className="sub">{p.days.map((d) => d.name).join(" · ")}</div>
+                  </div>
+                  <Icon name="chev" className="chev" />
+                </button>
+              ))}
+            </div>
+          )}
+          <button
+            className="btn block"
+            onClick={async () => {
+              const p = await createProgram();
+              nav.push({ name: "program-edit", id: p.id });
+            }}
+          >
+            <Icon name="plus" size={18} /> Создать свою программу
+          </button>
+          <p className="xs muted">Или открой любой шаблон и нажми «Скопировать и изменить».</p>
+        </section>
+
+        <section className="section">
+          <div className="section-head">
             <h2>Шаблоны программ</h2>
+            <button className="btn small ghost" onClick={() => nav.push({ name: "recommend" })}>
+              Подобрать
+            </button>
           </div>
           <div className="list">
             {PROGRAMS.map((p) => (

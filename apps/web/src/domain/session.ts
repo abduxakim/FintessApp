@@ -1,5 +1,6 @@
 import type { CarryItem, CircuitStation, Enrollment, Exercise, ItemBlock, Location, Program, ProgramItem, Profile, SessionExercise, SetLog, WorkoutSession } from "../data/types";
-import { alternatives, isAvailable } from "./availability";
+import { alternatives, isAvailable, zoneCaution } from "./availability";
+import { overloadHint } from "./overload";
 import { lastPerformance } from "./history";
 import { e1rm, weightForReps } from "./strength";
 import { uuidv7 } from "./ids";
@@ -80,12 +81,16 @@ export function makeSessionExercise(o: BuildOptions): SessionExercise {
   }
   const last = lastPerformance(o.exercise.id, o.sessions);
   const base = baselineWeight(o.exercise, o.profile, o.repsMax ?? null);
+  // Пора прибавить вес — подставляем новый вес сразу. Для проблемных зон — только подсказка.
+  const hint = overloadHint(o.exercise, last?.sets ?? null, o.repsMin ?? null, o.repsMax ?? null);
+  const caution = zoneCaution(o.exercise, o.profile);
+  const raised = hint?.kind === "increase" && !caution?.limitsHeavy ? hint.weight : null;
   const sets: SetLog[] = [];
   for (let i = 0; i < Math.max(1, o.sets); i++) {
     const prev = last?.sets[Math.min(i, (last?.sets.length ?? 1) - 1)];
     sets.push(
       newSet({
-        weight: o.exercise.tracking === "time" ? prev?.weight ?? null : prev?.weight ?? base,
+        weight: o.exercise.tracking === "time" ? prev?.weight ?? null : raised ?? prev?.weight ?? base,
         durationSec: o.exercise.tracking === "time" ? prev?.durationSec ?? o.durationSec ?? null : null,
       }),
     );

@@ -110,6 +110,8 @@ export interface Exercise {
   /** Шаг прибавки веса, кг. */
   loadStep?: number;
   technique: string;
+  /** Куда именно идёт нагрузка — общее описание. */
+  load?: string;
   mistakes: string[];
   /** "check" — описание стоит перепроверить с тренером. Показывается в интерфейсе. */
   review: ReviewStatus;

@@ -6,6 +6,7 @@ import { useNav } from "../../app/nav";
 import { abandonWorkout, finishWorkout } from "../../app/actions";
 import { addSet, makeSessionExercise, moveItem, suggestedReps, swapExercise } from "../../domain/session";
 import { alternatives, zoneCaution } from "../../domain/availability";
+import { overloadHint } from "../../domain/overload";
 import { lastPerformance, sessionPRs, type SessionPR } from "../../domain/history";
 import { fmtClock, fmtShort, parseNum } from "../../domain/format";
 import { ZONES } from "../../data/seed/labels";
@@ -236,6 +237,7 @@ function ExerciseCard({ session, se, index, total, onMenu, onInfo }: { session: 
   const last = useMemo(() => lastPerformance(se.exerciseId, sessions, session.id), [se.exerciseId, sessions, session.id]);
   if (!ex) return null;
   const caution = zoneCaution(ex, profile);
+  const hint = overloadHint(ex, last?.sets ?? null, se.repsMin, se.repsMax);
   const time = ex.tracking === "time";
   const noWeight = repsOnly(ex);
   const uni = ex.unilateral && !time && !noWeight;
@@ -271,6 +273,11 @@ function ExerciseCard({ session, se, index, total, onMenu, onInfo }: { session: 
           </p>
         ) : (
           ex.category !== "warmup" && ex.category !== "stretch" && ex.category !== "mobility" && ex.category !== "cardio" && <p className="last-time muted">Первый раз — подбери рабочий вес, приложение запомнит.</p>
+        )}
+        {hint && hint.kind !== "reps" && (
+          <p className="hint-up">
+            {hint.kind === "increase" && caution?.limitsHeavy ? `${hint.text} Только если ${caution.zone === "shoulder" ? "плечо" : "зона"} не беспокоит — вес оставил прежним.` : hint.text}
+          </p>
         )}
         {se.swappedFromId && <p className="xs muted">Замена для «{EXERCISE_BY_ID[se.swappedFromId]?.name}»</p>}
         {se.notes && <p className="xs dim">Заметка: {se.notes}</p>}

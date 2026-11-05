@@ -9,6 +9,7 @@ import { alternatives, zoneCaution } from "../../domain/availability";
 import { computeRecords, exerciseHistory } from "../../domain/history";
 import { fmtShort } from "../../domain/format";
 import { fmtSets, RecordsLine } from "../progress/shared";
+import { BodyMap } from "../../ui/BodyMap";
 
 export function ExerciseInfo({ id, compact }: { id: string; compact?: boolean }) {
   const nav = useNav();
@@ -27,6 +28,29 @@ export function ExerciseInfo({ id, compact }: { id: string; compact?: boolean })
         {ex.unilateral && <span className="pill">Одна сторона</span>}
         {ex.review === "check" && <span className="pill warn">Технику стоит проверить с тренером</span>}
       </div>
+      {ex.primary.length > 0 && (
+        <div className="stack gap-s">
+          <BodyMap primary={ex.primary} secondary={ex.secondary} />
+          <div className="legend">
+            <span>
+              <i style={{ background: "var(--accent)" }} />
+              основная нагрузка
+            </span>
+            <span>
+              <i style={{ background: "var(--map-secondary)" }} />
+              помогают
+            </span>
+          </div>
+        </div>
+      )}
+      {ex.load && (
+        <section className="section">
+          <div className="section-head">
+            <h2>Куда идёт нагрузка</h2>
+          </div>
+          <p>{ex.load}</p>
+        </section>
+      )}
       <dl className="kv">
         {ex.primary.length > 0 && (
           <>

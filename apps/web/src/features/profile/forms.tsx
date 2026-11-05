@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react";
 import type { EquipmentId, FocusIntent, Location, Profile, ProblemZone } from "../../data/types";
-import { EQUIPMENT, EQUIPMENT_PRESETS, FOCUS_AREAS, GOALS, INTENTS, LEVELS, LOCATIONS, ZONES } from "../../data/seed/labels";
+import { EQUIPMENT, EQUIPMENT_PRESETS, FOCUS_AREAS, GOALS, INTENTS, LEVELS, LOCATIONS, MUSCLES, ZONES } from "../../data/seed/labels";
 import { EXERCISES, EXERCISE_BY_ID } from "../../data/catalog";
 import { Chip, MedicalNote, Note, NumField, Segmented, Sheet } from "../../ui/kit";
 import { Icon } from "../../ui/icons";
@@ -127,7 +127,10 @@ export function ExercisePickerSheet({ onPick, onClose, exclude = [], title = "В
   const list = useMemo(() => {
     const nq = norm(q);
     const pool = ids ? ids.map((id) => EXERCISE_BY_ID[id]).filter(Boolean) : EXERCISES;
-    return pool.filter((e) => !exclude.includes(e.id) && (!nq || norm(e.name).includes(nq) || norm(e.nameEn).includes(nq))).slice(0, 80);
+    // Ищем и по названию, и по мышцам: «икр» найдёт подъёмы на носки.
+    return pool
+      .filter((e) => !exclude.includes(e.id) && (!nq || norm(e.name).includes(nq) || norm(e.nameEn).includes(nq) || e.primary.some((m) => norm(MUSCLES[m].name).includes(nq) || norm(MUSCLES[m].group).includes(nq))))
+      .slice(0, 80);
   }, [q, exclude, ids]);
   return (
     <Sheet title={title} onClose={onClose}>
@@ -140,7 +143,9 @@ export function ExercisePickerSheet({ onPick, onClose, exclude = [], title = "В
           <button key={e.id} className="list-item" onClick={() => onPick(e.id)}>
             <div className="grow">
               <div className="title">{e.name}</div>
-              <div className="sub">{e.equipment.length ? e.equipment.map((x) => EQUIPMENT[x]).join(", ") : "Свой вес"}</div>
+              <div className="sub">
+                {e.primary.map((m) => MUSCLES[m].name).join(", ") || "—"} · {e.equipment.length ? e.equipment.map((x) => EQUIPMENT[x]).join(", ") : "свой вес"}
+              </div>
             </div>
             <Icon name="plus" size={18} className="chev" />
           </button>

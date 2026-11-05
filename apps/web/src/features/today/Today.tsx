@@ -2,7 +2,9 @@ import React, { useMemo } from "react";
 import { EXERCISE_BY_ID, programById } from "../../data/catalog";
 import { activeSession, doneSessions, useStore } from "../../data/store";
 import { useNav } from "../../app/nav";
-import { startFree, startProgramDay } from "../../app/actions";
+import { prepareCustom, prepareProgramDay, startProgramDay } from "../../app/actions";
+import { groupLoad } from "../../domain/balance";
+import { liveSessions } from "../../data/store";
 import { BLOCKS } from "../../data/catalog";
 import { fmtClock, fmtDay, fmtDuration, fmtShort, fmtTonnage, plural, startOfDay, startOfWeek } from "../../domain/format";
 import { sessionDoneSets, sessionVolume } from "../../domain/strength";
@@ -35,10 +37,13 @@ export function Today() {
   const setCircuit = (patch: Partial<typeof circuit>) => updateMeta((m) => ({ ...m, profile: { ...m.profile, circuit: { ...m.profile.circuit, ...patch, configured: true } } }));
   const zones = state.meta.profile.problemZones;
 
-  const start = async () => {
+  const load = useMemo(() => groupLoad(liveSessions(state), EXERCISE_BY_ID, state.meta.profile, now), [state]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // «Начать» открывает план дня: можно посмотреть и поправить упражнения перед стартом.
+  const start = () => {
     if (!program) return;
-    await startProgramDay(program, en!.nextDayIndex);
-    nav.openWorkout();
+    prepareProgramDay(program, en!.nextDayIndex);
+    nav.push({ name: "preview" });
   };
 
   return (
@@ -72,7 +77,8 @@ export function Today() {
             <div className="grow stack gap-s">
               <span className="eyebrow">Следующая тренировка</span>
               <h2 style={{ fontSize: "var(--fs-xl)" }}>
-                {day.name} · {day.focus}
+                {day.name}
+                {day.focus ? ` · ${day.focus}` : ""}
               </h2>
               <span className="small muted">
                 {program.name} · ~{program.minutes} мин
@@ -96,7 +102,7 @@ export function Today() {
           </ul>
           <div className="row">
             <button className="btn primary big grow" onClick={start}>
-              <Icon name="play" size={18} /> Начать
+              <Icon name="play" size={18} /> К тренировке
             </button>
             <button className="btn big" onClick={() => nav.push({ name: "program", id: program.id })}>
               План
@@ -161,6 +167,21 @@ export function Today() {
         </div>
       </section>
 
+      <section className="section">
+        <div className="section-head">
+          <h2>Нагрузка за 7 дней</h2>
+          <span className="small muted">подходы / ориентир</span>
+        </div>
+        <div className="chips">
+          {load.map((l) => (
+            <span key={l.group} className={"pill " + (l.sets >= l.target ? "good" : l.sets >= l.target / 2 ? "" : "warn")}>
+              {l.group} <span className="num">{l.sets}/{l.target}</span>
+            </span>
+          ))}
+        </div>
+        <p className="xs muted">Считаются все подходы, включая упражнения, добавленные во время тренировки. Недогруженные группы приложение предложит добавить в плане тренировки.</p>
+      </section>
+
       {last && (
         <section className="section">
           <div className="section-head">
@@ -196,12 +217,16 @@ export function Today() {
         <div className="grid-2">
           <button
             className="btn"
-            onClick={async () => {
-              await startFree();
-              nav.openWorkout();
+            onClick={() => {
+              if (active) return nav.openWorkout();
+              prepareCustom();
+              nav.push({ name: "preview" });
             }}
           >
-            <Icon name="plus" size={18} /> Свободная
+            <Icon name="plus" size={18} /> Своя
+          </button>
+          <button className="btn" onClick={() => nav.push({ name: "ask" })}>
+            <Icon name="spark" size={18} /> По запросу
           </button>
           <button
             className="btn"
@@ -223,7 +248,7 @@ export function Today() {
           >
             Мобильность
           </button>
-          <button className="btn" onClick={() => { nav.setTab("workouts"); nav.push({ name: "library" }); }}>
+          <button className="btn" onClick={() => nav.push({ name: "library" })}>
             <Icon name="search" size={18} /> Упражнения
           </button>
         </div>

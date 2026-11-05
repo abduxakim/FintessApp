@@ -11,6 +11,9 @@ export type Route =
   | { name: "session"; id: string }
   | { name: "records" }
   | { name: "profile-edit"; section: "body" | "goal" | "place" | "health" | "baselines" | "circuit" }
+  | { name: "preview" }
+  | { name: "program-edit"; id: string }
+  | { name: "ask" }
   | { name: "data" }
   | { name: "about" };
 
@@ -23,6 +26,8 @@ interface NavApi {
   setTab: (t: Tab) => void;
   push: (r: Route) => void;
   back: () => void;
+  /** Закрыть верхний экран и после того, как история браузера догонит, выполнить действие. */
+  backThen: (fn: () => void) => void;
   workoutOpen: boolean;
   openWorkout: () => void;
   closeWorkout: () => void;
@@ -59,6 +64,12 @@ export function NavProvider({ children }: { children: React.ReactNode }) {
   const [layers, setLayers] = useState<Layer[]>([]);
   const ref = useRef<Layer[]>([]);
   const fallback = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const after = useRef<(() => void) | null>(null);
+  const runAfter = () => {
+    const fn = after.current;
+    after.current = null;
+    fn?.();
+  };
 
   const apply = useCallback((next: Layer[]) => {
     ref.current = next;
@@ -78,6 +89,7 @@ export function NavProvider({ children }: { children: React.ReactNode }) {
       const d = hashDepth();
       if (d < ref.current.length) truncate(d);
       else if (d > ref.current.length) setHash(ref.current.length, true); // «Вперёд» в истории — игнорируем
+      if (d === ref.current.length) runAfter();
     };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
@@ -97,6 +109,7 @@ export function NavProvider({ children }: { children: React.ReactNode }) {
       if (fallback.current) clearTimeout(fallback.current);
       fallback.current = setTimeout(() => {
         if (hashDepth() !== ref.current.length) setHash(ref.current.length, true);
+        runAfter();
       }, 500);
     },
     [truncate],
@@ -122,6 +135,11 @@ export function NavProvider({ children }: { children: React.ReactNode }) {
       window.scrollTo(0, 0);
     },
     back: () => popTo(ref.current.length - 1),
+    backThen: (fn) => {
+      if (!ref.current.length) return fn();
+      after.current = fn;
+      popTo(ref.current.length - 1);
+    },
     workoutOpen: layers.some((l) => l.kind === "workout"),
     openWorkout: () => {
       if (ref.current.some((l) => l.kind === "workout")) return;

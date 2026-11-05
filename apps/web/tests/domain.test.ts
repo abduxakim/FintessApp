@@ -290,3 +290,74 @@ describe("сводка", () => {
     expect(r.advice.some((a) => a.includes("150 мин"))).toBe(true);
   });
 });
+
+import { overloadHint } from "../src/domain/overload";
+import { groupLoad, underloaded } from "../src/domain/balance";
+import { buildPrompt, detectMinutes, localPlan, parsePlan } from "../src/domain/planner";
+
+describe("прогрессия веса", () => {
+  const bench = EXERCISE_BY_ID.bench_press;
+  it("все подходы на верхней границе — прибавить шаг", () => {
+    const h = overloadHint(bench, [newSet({ weight: 70, reps: 8, done: true }), newSet({ weight: 70, reps: 8, done: true })], 6, 8);
+    expect(h?.kind).toBe("increase");
+    expect(h?.weight).toBe(72.5);
+  });
+  it("большинство ниже нижней границы — держать вес", () => {
+    expect(overloadHint(bench, [newSet({ weight: 70, reps: 5, done: true }), newSet({ weight: 70, reps: 4, done: true })], 6, 8)?.kind).toBe("hold");
+  });
+  it("в диапазоне — добирать повторы", () => {
+    expect(overloadHint(bench, [newSet({ weight: 70, reps: 7, done: true })], 6, 8)?.kind).toBe("reps");
+  });
+  it("прибавленный вес подставляется, но не для упражнений с проблемной зоной", () => {
+    const prev = session("x", 1000, "lat_pulldown", [[50, 12], [50, 12], [50, 12]]);
+    const se = makeSessionExercise({ exercise: EXERCISE_BY_ID.lat_pulldown, block: "main", sets: 3, repsMin: 10, repsMax: 12, restSec: 90, profile: { ...userProfile(), problemZones: [] }, sessions: [prev] });
+    expect(se.sets[0].weight).toBe(55);
+    const prevB = session("y", 1000, "bench_press", [[70, 8], [70, 8]]);
+    const b = makeSessionExercise({ exercise: bench, block: "main", sets: 2, repsMin: 6, repsMax: 8, restSec: 90, profile: userProfile(), sessions: [prevB] });
+    expect(b.sets[0].weight).toBe(70);
+  });
+});
+
+describe("баланс за неделю", () => {
+  it("учитывает добавленные вне плана упражнения и вспомогательные мышцы", () => {
+    const now = 10 * 86400000;
+    const s = session("a", now - 86400000, "triceps_pushdown", [[30, 12], [30, 12], [30, 12]]);
+    const load = groupLoad([s], EXERCISE_BY_ID, userProfile(), now);
+    expect(load.find((l) => l.group === "Руки")?.sets).toBe(3);
+    expect(underloaded(load).map((l) => l.group)).toContain("Ноги");
+    const old = session("b", now - 9 * 86400000, "back_squat", [[80, 5]]);
+    expect(groupLoad([old], EXERCISE_BY_ID, userProfile(), now).find((l) => l.group === "Ноги")?.sets).toBe(0);
+  });
+});
+
+describe("тренировка по запросу", () => {
+  const p = userProfile();
+  const load = groupLoad([], EXERCISE_BY_ID, p);
+  it("ключевые слова → группы, время → объём", () => {
+    const plan = localPlan("спина и ноги, 80 минут", p, EXERCISES, EXERCISE_BY_ID, load);
+    const groups = plan.items.filter((i) => i.block === "main").map((i) => EXERCISE_BY_ID[i.exerciseId].primary.map((m) => m));
+    expect(plan.title).toBe("Спина + Ноги");
+    expect(groups.flat()).toEqual(expect.arrayContaining(["lats"]));
+    expect(groups.flat().some((m) => ["quads", "glutes", "hamstrings"].includes(m))).toBe(true);
+    expect(detectMinutes("на 40 минут")).toBe(40);
+  });
+  it("икры находятся", () => {
+    const plan = localPlan("хочу икры", p, EXERCISES, EXERCISE_BY_ID, load);
+    expect(plan.items.filter((i) => EXERCISE_BY_ID[i.exerciseId].primary.includes("calves")).length).toBeGreaterThanOrEqual(2);
+  });
+  it("в запрос к Claude не попадают вес и заметки", () => {
+    const prompt = buildPrompt("спина", { ...p, weightKg: 79.4, problemZones: [{ id: "z", zone: "shoulder", side: "left", note: "секретная заметка", limitsHeavy: true }] }, EXERCISES, load);
+    expect(prompt).not.toContain("79.4");
+    expect(prompt).not.toContain("секретная заметка");
+    expect(prompt).toContain("Плечо (левое)");
+    expect(prompt).not.toMatch(/circuit_5_10_15/);
+  });
+  it("ответ Claude проверяется: чужие id отбрасываются, числа ограничиваются", () => {
+    const plan = parsePlan({ title: "Тест", items: [{ id: "made_up", sets: 3 }, { id: "constructor", sets: 3 }, { id: "bench_press", sets: 99, repsMin: 12, repsMax: 6, restSec: 9999 }, { id: "plank", sets: 2, durationSec: 5000 }] }, EXERCISE_BY_ID)!;
+    expect(plan.items.map((i) => i.exerciseId)).toEqual(["bench_press", "plank"]);
+    expect(plan.items[0]).toMatchObject({ sets: 8, repsMin: 6, repsMax: 12, restSec: 300 });
+    expect(plan.items[1].durationSec).toBe(900);
+    expect(parsePlan({ items: [{ id: "cat_cow" }] }, EXERCISE_BY_ID)).toBeNull();
+    expect(parsePlan("text", EXERCISE_BY_ID)).toBeNull();
+  });
+});

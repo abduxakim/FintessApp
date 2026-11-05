@@ -21,6 +21,9 @@
   --bad-soft: rgba(234, 93, 85, 0.14);
   --info: #74b3ea;
   --scrim: rgba(4, 6, 7, 0.66);
+  --map-base: #2a3439;
+  --map-muscle: #3a474e;
+  --map-secondary: rgba(243, 181, 42, 0.42);
 
   --font-display: "Unbounded", "Golos Text", system-ui, sans-serif;
   --font-body: "Golos Text", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -1061,4 +1064,68 @@ button.list-item:active {
 }
 .big-number.num {
   font-family: var(--font-num);
+}
+
+.body-map {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  max-width: 360px;
+  margin: 0 auto;
+  width: 100%;
+}
+.body-fig {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.body-fig svg {
+  width: 100%;
+  max-width: 170px;
+  height: auto;
+}
+.body-fig figcaption {
+  font-size: var(--fs-xs);
+  color: var(--muted);
+}
+.legend {
+  display: flex;
+  gap: 14px;
+  justify-content: center;
+  font-size: var(--fs-xs);
+  color: var(--muted);
+}
+.legend i {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  margin-right: 5px;
+  vertical-align: -1px;
+}
+.stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.stepper .v {
+  min-width: 2.2ch;
+  text-align: center;
+  font-family: var(--font-num);
+  font-weight: 600;
+}
+.stepper button {
+  width: 34px;
+  height: 34px;
+  border-radius: var(--r-s);
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  display: grid;
+  place-items: center;
+}
+.hint-up {
+  font-size: var(--fs-s);
+  color: var(--accent);
 }

@@ -12,6 +12,9 @@ import { ProgramDetail } from "../features/workouts/ProgramDetail";
 import { RecommendScreen } from "../features/workouts/Recommend";
 import { Library } from "../features/workouts/Library";
 import { ExerciseDetail } from "../features/workouts/ExerciseDetail";
+import { Preview } from "../features/workouts/Preview";
+import { ProgramEditor } from "../features/workouts/ProgramEditor";
+import { AskScreen } from "../features/workouts/Ask";
 import { WorkoutOverlay } from "../features/workout/Workout";
 import { ProgressHome, RecordsScreen, SessionDetail } from "../features/progress/Progress";
 import { NutritionHome } from "../features/nutrition/Nutrition";
@@ -32,6 +35,12 @@ function Screen() {
       return <ProgramDetail key={route.id} id={route.id} />;
     case "recommend":
       return <RecommendScreen />;
+    case "preview":
+      return <Preview />;
+    case "program-edit":
+      return <ProgramEditor key={route.id} id={route.id} />;
+    case "ask":
+      return <AskScreen />;
     case "library":
       return <Library />;
     case "exercise":

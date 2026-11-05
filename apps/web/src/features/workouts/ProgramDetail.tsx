@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { EXERCISES, EXERCISE_BY_ID, programById } from "../../data/catalog";
 import { activeSession, useStore } from "../../data/store";
 import { useNav } from "../../app/nav";
-import { enroll, setNextDay, startProgramDay } from "../../app/actions";
+import { copyProgram, enroll, prepareProgramDay, setNextDay, startProgramDay } from "../../app/actions";
 import { GOALS, LEVELS, LOCATIONS } from "../../data/seed/labels";
 import { Confirm, MedicalNote, Note, TopBar, toast } from "../../ui/kit";
 import { Icon } from "../../ui/icons";
@@ -42,8 +42,14 @@ export function ProgramDetail({ id }: { id: string }) {
       nav.openWorkout();
       return;
     }
-    await startProgramDay(program, dayIdx);
-    nav.openWorkout();
+    // Короткие блоки стартуют сразу, программные дни — через план, который можно поправить.
+    if (program.kind === "block") {
+      await startProgramDay(program, dayIdx);
+      nav.openWorkout();
+      return;
+    }
+    prepareProgramDay(program, dayIdx);
+    nav.push({ name: "preview" });
   };
 
   const blocks: ItemBlock[] = ["warmup", "main", "cooldown"];
@@ -143,7 +149,7 @@ export function ProgramDetail({ id }: { id: string }) {
           ) : isMine ? (
             <>
               <button className="btn primary big block" onClick={start}>
-                <Icon name="play" size={18} /> Начать «{day.name}»
+                <Icon name="play" size={18} /> К тренировке «{day.name}»
               </button>
               {dayIdx !== en!.nextDayIndex % program.days.length && (
                 <button className="btn block" onClick={() => setNextDay(dayIdx).then(() => toast(`Следующая тренировка: ${day.name}`))}>
@@ -161,6 +167,23 @@ export function ProgramDetail({ id }: { id: string }) {
               </button>
             </>
           )}
+          {program.kind === "program" &&
+            (program.owner === "user" ? (
+              <button className="btn block" onClick={() => nav.push({ name: "program-edit", id: program.id })}>
+                Изменить программу
+              </button>
+            ) : (
+              <button
+                className="btn ghost block"
+                onClick={async () => {
+                  const copy = await copyProgram(program);
+                  toast("Создана копия — её можно менять");
+                  nav.push({ name: "program-edit", id: copy.id });
+                }}
+              >
+                Скопировать и изменить
+              </button>
+            ))}
         </div>
       </div>
       {confirmSwitch && (

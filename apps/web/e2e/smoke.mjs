@@ -123,18 +123,30 @@ try {
   await page.getByRole("button", { name: "В начале" }).click();
   await page.getByText("Добавить круг 5-10-15 в тренировки?").waitFor({ state: "hidden" });
 
-  // Завершить можно в любой момент; без подходов — без сохранения.
-  await page.getByRole("button", { name: "Начать", exact: true }).click();
+  // «К тренировке» открывает план, а не запускает тренировку сразу.
+  await page.getByRole("button", { name: "К тренировке" }).click();
+  await page.getByText("План тренировки").waitFor();
+  check("план дня открывается до старта", (await page.locator(".workout").count()) === 0);
+  await page.getByRole("button", { name: "Начать тренировку" }).click();
   await page.locator(".workout").waitFor();
+  // Завершить можно в любой момент; без подходов — без сохранения.
   await page.getByRole("button", { name: "Завершить" }).first().click();
   await page.getByText("Завершить без сохранения?").waitFor();
   await page.locator(".sheet").getByRole("button", { name: "Завершить" }).click();
   await page.locator(".workout").waitFor({ state: "hidden" });
   check("пустую тренировку можно завершить", await page.getByText("Сегодня: A").isVisible());
 
-  // ── Тренировка A ──
-  await page.getByRole("button", { name: "Начать", exact: true }).click();
+  // ── Тренировка A: в плане добавляем своё упражнение ──
+  await page.getByRole("button", { name: "К тренировке" }).click();
+  await page.getByText("План тренировки").waitFor();
+  await page.getByRole("button", { name: "Добавить упражнение" }).click();
+  await page.fill("#picker-search", "икр");
+  await page.getByRole("button", { name: /Подъёмы на носки стоя/ }).click();
+  check("своё упражнение добавлено в план", await page.getByText("Подъёмы на носки стоя").isVisible());
+  await shot(page, "03b-preview");
+  await page.getByRole("button", { name: "Начать тренировку" }).click();
   await page.locator(".workout").waitFor();
+  check("добавленное упражнение есть в тренировке", (await page.locator("article[aria-label='Подъёмы на носки стоя']").count()) === 1);
   const bench = page.locator("article", { has: page.getByRole("button", { name: "Жим штанги лёжа" }) });
   const w1 = await bench.locator(".set-input").first().inputValue();
   check("стартовый вес жима из профиля", w1 === "70", w1);
@@ -179,7 +191,8 @@ try {
   // ── Повтор A: подсказка «прошлый раз» и рекорд ──
   await page.getByRole("button", { name: "План" }).click();
   await page.getByRole("tab", { name: /^A/ }).click();
-  await page.getByRole("button", { name: "Начать «A»" }).click();
+  await page.getByRole("button", { name: "К тренировке «A»" }).click();
+  await page.getByRole("button", { name: "Начать тренировку" }).click();
   const bench2 = page.locator("article", { has: page.getByRole("button", { name: "Жим штанги лёжа" }) });
   const hint = await bench2.locator(".last-time").textContent();
   check("подсказка прошлого раза", /70×6 · 70×6/.test(hint), hint);
@@ -212,6 +225,40 @@ try {
   await page.waitForTimeout(400);
   check("кнопка «Назад» возвращает к списку", await page.locator("#lib-search").isVisible());
 
+  // ── Карта мышц: найти упражнения на икры ──
+  await page.fill("#lib-search", "");
+  await page.getByRole("button", { name: "Мышцы на схеме" }).click();
+  await page.locator(".card").getByRole("button", { name: "Икры", exact: true }).click();
+  const calves = await page.locator(".list-item .title").allTextContents();
+  check("фильтр по мышце «Икры»", calves.length >= 4 && calves.every((t) => /нос|Икры/i.test(t)), calves.join(", "));
+  await shot(page, "08-muscles");
+
+  // ── Своя программа: спина и ноги в один день ──
+  await page.getByRole("button", { name: "Тренировки" }).click();
+  await page.getByRole("button", { name: "Создать свою программу" }).click();
+  await page.getByText("Редактор программы").waitFor();
+  await page.fill("#day-name", "Спина + ноги");
+  await page.locator("#day-name").blur();
+  for (const q of ["Подтягивания прямым", "Приседания со штангой"]) {
+    await page.getByRole("button", { name: "Добавить упражнение" }).click();
+    await page.fill("#picker-search", q.split(" ")[0]);
+    await page.getByRole("button", { name: new RegExp(q) }).first().click();
+  }
+  await page.getByRole("button", { name: "Сделать моей программой" }).click();
+  await shot(page, "09-editor");
+  await page.getByRole("button", { name: "Сегодня" }).click();
+  const nextTitle = await page.locator(".card.accent h2").first().textContent();
+  check("своя программа стала активной", nextTitle.startsWith("Спина + ноги"), nextTitle);
+
+  // ── Тренировка по запросу (без Claude — в тестах его нет) ──
+  await page.getByRole("button", { name: "По запросу" }).click();
+  await page.fill("#ask-text", "спина и ноги, 60 минут");
+  await page.getByRole("button", { name: "Составить с Claude" }).click();
+  await page.getByText("План тренировки").waitFor();
+  const askTitle = await page.inputValue("#draft-title");
+  check("план по запросу", askTitle === "Спина + Ноги", askTitle);
+  await shot(page, "10-ask");
+
   // ── Синхронизация ──
   await page.waitForTimeout(2500);
   // Удалённые тренировки хранятся в облаке как «надгробия», чтобы удаление дошло до других устройств.
@@ -235,7 +282,9 @@ try {
   check("без облака открывается онбординг (локальный режим)", true);
   await offline.ctx.close();
 } catch (e) {
-  check("сценарий выполнен без исключений", false, e.message.split("\n")[0]);
+  // fail-shot: снимок экрана в момент ошибки
+  for (const ctx of browser.contexts()) for (const pg of ctx.pages()) await shot(pg, "fail").catch(() => {});
+  check("сценарий выполнен без исключений", false, e.message.split("\n").slice(0, 2).join(" "));
 } finally {
   await browser.close();
   server.close();
