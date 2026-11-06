@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 export type Tab = "today" | "workouts" | "nutrition" | "progress" | "profile";
 
@@ -18,7 +18,8 @@ export type Route =
   | { name: "data" }
   | { name: "about" };
 
-type Layer = { kind: "route"; route: Route } | { kind: "workout" };
+type LayerBody = { kind: "route"; route: Route } | { kind: "workout" };
+type Layer = LayerBody & { id: number };
 
 interface NavApi {
   tab: Tab;
@@ -32,10 +33,41 @@ interface NavApi {
   workoutOpen: boolean;
   openWorkout: () => void;
   closeWorkout: () => void;
+  /** Ключ текущего экрана: у каждого открытого экрана своё сохранённое состояние и прокрутка. */
+  screenKey: string;
 }
+
+// Состояние экранов (фильтры, поиск, выбранные мышцы) и позиции прокрутки.
+// Живёт, пока экран открыт в стеке: при возврате «Назад» экран восстанавливается как был.
+const screenState = new Map<string, Record<string, unknown>>();
+const scrollPos = new Map<string, number>();
+let layerSeq = 1;
 
 const Ctx = createContext<NavApi | null>(null);
 export const useNav = () => useContext(Ctx)!;
+
+/** useState, который переживает переход на другой экран и возврат назад. */
+export function useScreenState<T>(name: string, initial: T | (() => T)): [T, (v: T | ((cur: T) => T)) => void] {
+  const { screenKey } = useNav();
+  const [value, setValue] = useState<T>(() => {
+    const bag = screenState.get(screenKey);
+    if (bag && name in bag) return bag[name] as T;
+    return typeof initial === "function" ? (initial as () => T)() : initial;
+  });
+  const set = useCallback(
+    (v: T | ((cur: T) => T)) => {
+      setValue((cur) => {
+        const next = typeof v === "function" ? (v as (c: T) => T)(cur) : v;
+        const bag = screenState.get(screenKey) ?? {};
+        bag[name] = next;
+        screenState.set(screenKey, bag);
+        return next;
+      });
+    },
+    [screenKey, name],
+  );
+  return [value, set];
+}
 
 // Каждый открытый слой (экран или тренировка) — запись в истории с хэшем #s<глубина>.
 // Тогда системная кнопка «Назад» на Android закрывает слои внутри приложения.
@@ -79,7 +111,14 @@ export function NavProvider({ children }: { children: React.ReactNode }) {
 
   const truncate = useCallback(
     (depth: number) => {
-      if (ref.current.length > depth) apply(ref.current.slice(0, depth));
+      if (ref.current.length > depth) {
+        // Закрытые экраны забывают своё состояние; открытые ниже — сохраняют.
+        for (const l of ref.current.slice(depth)) {
+          screenState.delete(`l${l.id}`);
+          scrollPos.delete(`l${l.id}`);
+        }
+        apply(ref.current.slice(0, depth));
+      }
     },
     [apply],
   );
@@ -116,24 +155,40 @@ export function NavProvider({ children }: { children: React.ReactNode }) {
     [truncate],
   );
 
-  const pushLayer = (layer: Layer) => {
-    apply([...ref.current, layer]);
+  const routes = layers.filter((l): l is Extract<Layer, { kind: "route" }> & { id: number } => l.kind === "route");
+  const topRoute = routes[routes.length - 1];
+  const screenKey = topRoute ? `l${topRoute.id}` : `root:${tab}`;
+
+  const pushLayer = (layer: LayerBody) => {
+    // Запоминаем прокрутку экрана, с которого уходим.
+    if (layer.kind === "route") scrollPos.set(screenKey, window.scrollY);
+    apply([...ref.current, { ...layer, id: layerSeq++ } as Layer]);
     setHash(ref.current.length, false);
   };
 
-  const routes = layers.filter((l): l is Extract<Layer, { kind: "route" }> => l.kind === "route");
+  // При возврате на экран — восстанавливаем прокрутку, на новый экран — наверх.
+  const prevKey = useRef(screenKey);
+  useLayoutEffect(() => {
+    if (prevKey.current === screenKey) return;
+    prevKey.current = screenKey;
+    const y = scrollPos.get(screenKey);
+    if (y != null) {
+      // Ждём, пока экран отрисует список, затем возвращаемся на прежнее место.
+      requestAnimationFrame(() => window.scrollTo(0, y));
+    } else window.scrollTo(0, 0);
+  }, [screenKey]);
   const api: NavApi = {
     tab,
-    route: routes[routes.length - 1]?.route ?? { name: "root" },
+    route: topRoute?.route ?? { name: "root" },
+    screenKey,
     depth: routes.length,
     setTab: (t) => {
+      scrollPos.set(screenKey, window.scrollY);
       popTo(0);
       setTabState(t);
-      window.scrollTo(0, 0);
     },
     push: (r) => {
       pushLayer({ kind: "route", route: r });
-      window.scrollTo(0, 0);
     },
     back: () => popTo(ref.current.length - 1),
     backThen: (fn) => {

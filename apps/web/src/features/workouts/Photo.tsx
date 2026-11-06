@@ -227,8 +227,13 @@ export function PhotoScreen() {
             {program ? (
               <>
                 <p className="xs muted">День программы подобран по мышцам. Нажми на день, чтобы выбрать другой.</p>
-                <button className="btn primary big block" onClick={addToProgram}>
-                  <Icon name="plus" size={18} /> Добавить в программу «{program.name}»
+                <button className="btn primary big block btn-2line" onClick={addToProgram}>
+                  <span className="row" style={{ justifyContent: "center" }}>
+                    <Icon name="plus" size={18} /> Добавить в программу
+                  </span>
+                  <span className="xs" style={{ fontWeight: 500, opacity: 0.8 }}>
+                    «{program.name}»
+                  </span>
                 </button>
                 <button className="btn block" onClick={apply}>
                   {fromDraft ? "Только в эту тренировку" : "Только в одну тренировку"}

@@ -1167,3 +1167,24 @@ a.btn {
   line-height: 1.2;
   padding-block: 8px;
 }
+
+button.step {
+  font: inherit;
+  cursor: pointer;
+}
+button.step:active {
+  background: var(--raise);
+}
+
+/* Длинные подписи на широких кнопках переносятся, а не уходят за край. */
+.btn.block,
+.btn.big {
+  white-space: normal;
+  text-align: center;
+  line-height: 1.25;
+}
+.btn-2line {
+  flex-direction: column;
+  gap: 2px;
+  padding-block: 8px;
+}

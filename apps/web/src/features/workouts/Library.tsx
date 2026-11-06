@@ -4,7 +4,7 @@ import { CATEGORIES, DIFFICULTY, EQUIPMENT, LOCATIONS, MUSCLES } from "../../dat
 import type { Category, EquipmentId, Exercise, Location, MuscleId } from "../../data/types";
 import { BodyMap, MAP_MUSCLES } from "../../ui/BodyMap";
 import { useStore } from "../../data/store";
-import { useNav } from "../../app/nav";
+import { useNav, useScreenState } from "../../app/nav";
 import { Chip, Sheet, TopBar } from "../../ui/kit";
 import { Icon } from "../../ui/icons";
 import { isAvailable } from "../../domain/availability";
@@ -40,9 +40,10 @@ export function filterExercises(list: Exercise[], q: string, f: Filters, availab
 export function Library() {
   const nav = useNav();
   const profile = useStore((s) => s.meta.profile);
-  const [q, setQ] = useState("");
-  const [f, setF] = useState<Filters>({ group: null, muscles: [], withSecondary: false, location: null, category: null, equipment: null, mine: false });
-  const [showMap, setShowMap] = useState(false);
+  // Поиск, фильтры и схема сохраняются, пока экран открыт: после карточки упражнения всё на месте.
+  const [q, setQ] = useScreenState("q", "");
+  const [f, setF] = useScreenState<Filters>("filters", { group: null, muscles: [], withSecondary: false, location: null, category: null, equipment: null, mine: false });
+  const [showMap, setShowMap] = useScreenState("showMap", false);
   const listRef = useRef<HTMLDivElement>(null);
   const toggleMuscle = (m: MuscleId) => setF((cur) => ({ ...cur, group: null, muscles: cur.muscles.includes(m) ? cur.muscles.filter((x) => x !== m) : [...cur.muscles, m] }));
   const [more, setMore] = useState(false);

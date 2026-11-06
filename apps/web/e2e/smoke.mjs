@@ -112,7 +112,24 @@ async function newPage(withCloud) {
   }
   return { ctx, page };
 }
-const shot = async (page, name) => shots && page.screenshot({ path: join(shots, name + ".png"), fullPage: false });
+/** Кнопки и текст не вылезают за край экрана (то, что пользователь видит как «обрезанные» кнопки). */
+const overflow = (page) =>
+  page.evaluate(() => {
+    const bad = [];
+    if (document.documentElement.scrollWidth > window.innerWidth + 1) bad.push("страница шире экрана");
+    for (const b of document.querySelectorAll(".btn, .chip")) {
+      if (b.closest(".chips.scroll")) continue; // горизонтальная лента — листается пальцем
+      const r = b.getBoundingClientRect();
+      if (r.width && (b.scrollWidth > b.clientWidth + 2 || r.right > window.innerWidth + 1 || r.left < -1)) bad.push(b.textContent.trim().slice(0, 40));
+    }
+    return bad;
+  });
+const shot = async (page, name) => {
+  // На каждом экране, который снимаем, заодно проверяем, что ничего не обрезано по ширине.
+  const bad = await overflow(page);
+  if (bad.length) check(`экран ${name}: ничего не вылезает за край`, false, bad.join(" | "));
+  if (shots) await page.screenshot({ path: join(shots, name + ".png"), fullPage: false });
+};
 
 try {
   const { ctx, page } = await newPage(true);
@@ -285,6 +302,39 @@ try {
   const multi = await page.locator(".list-item .title").allTextContents();
   check("несколько мышц сразу (икры + трапеции)", multi.length > calves.length && multi.some((t) => /Шраги/.test(t)), String(multi.length));
   check("кнопка «Показать N упр.»", await page.getByRole("button", { name: `Показать ${multi.length} упр.` }).isVisible());
+
+  // ── «Назад» возвращает туда, где был: мышцы, схема и прокрутка на месте ──
+  await page.getByRole("button", { name: `Показать ${multi.length} упр.` }).click();
+  await page.waitForTimeout(500);
+  const yBefore = await page.evaluate(() => window.scrollY);
+  await page.getByRole("button", { name: /Шраги с гантелями/ }).click();
+  await page.getByText("Типичные ошибки").waitFor();
+  await page.getByRole("button", { name: "Назад" }).first().click();
+  await page.waitForTimeout(600);
+  const keptIn = await page.locator(".list-item .title").allTextContents();
+  const yAfter = await page.evaluate(() => window.scrollY);
+  check("назад (в приложении): мышцы и схема сохранились", keptIn.length === multi.length && (await page.locator(".body-map").isVisible()), String(keptIn.length));
+  check("назад: прокрутка вернулась на место", Math.abs(yAfter - yBefore) < 40, `${yBefore} → ${yAfter}`);
+  await page.getByRole("button", { name: /Шраги с гантелями/ }).click();
+  await page.getByText("Типичные ошибки").waitFor();
+  await page.goBack();
+  await page.waitForTimeout(600);
+  check("назад (системная кнопка): мышцы сохранились", (await page.locator(".list-item .title").count()) === multi.length);
+  // Прогрессия кликабельна: переход к следующей ступени и обратно.
+  await page.getByRole("button", { name: "Сбросить", exact: true }).click();
+  await page.fill("#lib-search", "отжимания от пола");
+  await page.getByRole("button", { name: /Отжимания от пола/ }).first().click();
+  await page.locator("button.step", { hasText: "Отжимания с ногами на возвышении" }).click();
+  await page.getByRole("heading", { name: "Отжимания с ногами на возвышении" }).waitFor();
+  check("прогрессия: переход на другую ступень", true);
+  await page.goBack();
+  await page.waitForTimeout(500);
+  check("прогрессия: назад к исходному упражнению", await page.getByRole("heading", { name: "Отжимания от пола" }).isVisible());
+  await page.goBack();
+  await page.waitForTimeout(500);
+  check("назад: поиск в библиотеке сохранился", (await page.inputValue("#lib-search")) === "отжимания от пола");
+  await page.fill("#lib-search", "");
+  check("библиотека: ничего не вылезает за край", (await overflow(page)).length === 0, (await overflow(page)).join(" | "));
   await shot(page, "08-muscles");
 
   // ── Своя программа: спина и ноги в один день ──
@@ -328,11 +378,16 @@ try {
   await page.getByRole("button", { name: "Распознать" }).click();
   await page.getByText("Тренажёр для жима ногами").waitFor();
   check("фото: только упражнения из каталога + новое с пометкой", (await page.locator("label.list-item").count()) === 3 && (await page.getByText("новое — проверь").isVisible()));
+  check("фото: кнопки не обрезаны", (await overflow(page)).length === 0, (await overflow(page)).join(" | "));
   await shot(page, "12-photo");
   check("фото: день программы подобран", (await page.getByRole("button", { name: /День для «Жим ногами»: Спина \+ ноги/ }).count()) === 1);
   await page.getByRole("button", { name: /Добавить в программу/ }).click();
   await page.getByText("добавлено тобой").first().waitFor();
   check("фото: упражнения добавлены в программу", (await page.getByText("добавлено тобой").count()) === 3 && (await page.getByText("Жим ногами одной ногой").count()) === 1);
+  // Из программы «Назад» — на экран, откуда пришёл (план тренировки), со всем, что там было.
+  await page.goBack();
+  await page.waitForTimeout(600);
+  check("после фото «Назад» возвращает на прежний экран", await page.getByText("План тренировки").isVisible());
   await shot(page, "10-ask");
 
   // ── Быстрые блоки на «Сегодня» тоже открывают план ──

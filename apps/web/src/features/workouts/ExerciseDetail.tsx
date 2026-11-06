@@ -1,8 +1,8 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo } from "react";
 import { EXERCISES, EXERCISE_BY_ID, progressionFor } from "../../data/catalog";
 import { CATEGORIES, DIFFICULTY, EQUIPMENT, LOCATIONS, MUSCLES, ZONES } from "../../data/seed/labels";
 import { doneSessions, useStore } from "../../data/store";
-import { useNav } from "../../app/nav";
+import { useNav, useScreenState } from "../../app/nav";
 import { MedicalNote, Note, Segmented, TopBar } from "../../ui/kit";
 import { Icon } from "../../ui/icons";
 import { alternatives, zoneCaution } from "../../domain/availability";
@@ -18,7 +18,7 @@ export function videoSearchUrl(name: string): string {
 export function ExerciseInfo({ id, compact }: { id: string; compact?: boolean }) {
   const nav = useNav();
   const profile = useStore((s) => s.meta.profile);
-  const [tab, setTab] = useState<"how" | "muscles">("how");
+  const [tab, setTab] = useScreenState<"how" | "muscles">(`tab:${id}`, "how");
   const ex = EXERCISE_BY_ID[id];
   if (!ex) return null;
   const caution = zoneCaution(ex, profile);
@@ -82,7 +82,15 @@ export function ExerciseInfo({ id, compact }: { id: string; compact?: boolean })
                 {prog.steps.map((st, i) => (
                   <React.Fragment key={st.exerciseId}>
                     {i > 0 && <Icon name="chev" size={14} className="chev" />}
-                    <span className={"step" + (st.exerciseId === ex.id ? " cur" : "")}>{EXERCISE_BY_ID[st.exerciseId]?.name}</span>
+                    {st.exerciseId === ex.id ? (
+                      <span className="step cur" aria-current="true">
+                        {EXERCISE_BY_ID[st.exerciseId]?.name}
+                      </span>
+                    ) : (
+                      <button className="step" onClick={() => nav.push({ name: "exercise", id: st.exerciseId })}>
+                        {EXERCISE_BY_ID[st.exerciseId]?.name}
+                      </button>
+                    )}
                   </React.Fragment>
                 ))}
               </div>
