@@ -1,0 +1,234 @@
+// Локальное хранилище состояния (local-first).
+// Каждое изменение: память → IndexedDB → очередь outbox → облако (sync.ts).
+// Чтение идёт только из памяти, поэтому интерфейс не ждёт сеть.
+import { useRef, useSyncExternalStore } from "react";
+import { idb } from "./idb";
+import { defaultMeta, normalizeMeta } from "./defaults";
+import { registerCustom } from "./custom";
+import type { Program, UserMeta, WorkoutSession } from "./types";
+
+export type EntityKind = "meta" | "session" | "program";
+
+export interface OutboxEntry {
+  key: string;
+  kind: EntityKind;
+  id: string;
+  updatedAt: number;
+}
+
+export type SyncMode = "connecting" | "on" | "off" | "error";
+
+export interface SyncStatus {
+  mode: SyncMode;
+  pending: number;
+  lastSyncAt: number | null;
+  message: string | null;
+}
+
+export interface State {
+  ready: boolean;
+  /** Первая загрузка из облака ещё идёт (на новом устройстве не показываем онбординг раньше времени). */
+  bootstrapping: boolean;
+  localStorage: boolean;
+  meta: UserMeta;
+  sessions: Record<string, WorkoutSession>;
+  programs: Record<string, Program>;
+  sync: SyncStatus;
+}
+
+let state: State = {
+  ready: false,
+  bootstrapping: true,
+  localStorage: false,
+  meta: defaultMeta(),
+  sessions: {},
+  programs: {},
+  sync: { mode: "connecting", pending: 0, lastSyncAt: null, message: null },
+};
+
+const listeners = new Set<() => void>();
+/** Очередь отправки в облако. Дублируется в IndexedDB, чтобы пережить перезагрузку. */
+const outbox = new Map<string, OutboxEntry>();
+let onLocalChange: (() => void) | null = null;
+
+export function getState(): State {
+  return state;
+}
+
+function setState(patch: Partial<State>) {
+  // Свои упражнения из профиля сразу попадают в каталог (в том числе пришедшие из облака).
+  if (patch.meta?.customExercises) registerCustom(patch.meta.customExercises);
+  state = { ...state, ...patch };
+  listeners.forEach((l) => l());
+}
+
+export function subscribe(l: () => void): () => void {
+  listeners.add(l);
+  return () => listeners.delete(l);
+}
+
+/** Результат селектора кэшируется по (состояние, селектор): селекторы, возвращающие новые массивы,
+ *  не вызывают бесконечных перерисовок. */
+export function useStore<T>(selector: (s: State) => T): T {
+  const cache = useRef<{ s: State | null; sel: unknown; v: T | undefined }>({ s: null, sel: null, v: undefined });
+  const get = () => {
+    const c = cache.current;
+    if (c.s !== state || c.sel !== selector) cache.current = { s: state, sel: selector, v: selector(state) };
+    return cache.current.v as T;
+  };
+  return useSyncExternalStore(subscribe, get, get);
+}
+
+export function finishBootstrap() {
+  if (state.bootstrapping) setState({ bootstrapping: false });
+}
+
+export function setSyncStatus(patch: Partial<SyncStatus>) {
+  setState({ sync: { ...state.sync, ...patch } });
+}
+
+/** Синхронизация подписывается на локальные изменения, чтобы отправить их в облако. */
+export function setLocalChangeHandler(fn: () => void) {
+  onLocalChange = fn;
+}
+
+export async function loadLocal(): Promise<void> {
+  const available = await idb.available();
+  const [meta, sessions, programs, outboxList] = await Promise.all([
+    idb.get<UserMeta>("meta", "meta"),
+    idb.getAll<WorkoutSession>("sessions"),
+    idb.getAll<Program>("programs"),
+    idb.getAll<OutboxEntry>("outbox"),
+  ]);
+  outbox.clear();
+  for (const e of outboxList) outbox.set(e.key, e);
+  setState({
+    ready: true,
+    localStorage: available,
+    meta: meta ? normalizeMeta(meta) : defaultMeta(),
+    sessions: Object.fromEntries(sessions.map((s) => [s.id, s])),
+    programs: Object.fromEntries(programs.map((p) => [p.id, p])),
+    sync: { ...state.sync, pending: outboxList.length },
+  });
+}
+
+async function enqueue(kind: EntityKind, id: string, updatedAt: number) {
+  const key = kind === "meta" ? "meta" : `${kind}:${id}`;
+  const entry: OutboxEntry = { key, kind, id, updatedAt };
+  outbox.set(key, entry);
+  setSyncStatus({ pending: outbox.size });
+  await idb.put("outbox", entry);
+  onLocalChange?.();
+}
+
+function stamp<T extends { updatedAt?: number; rev?: number }>(entity: T): T {
+  // Монотонное время: две правки в одну миллисекунду не должны получить одинаковую метку.
+  const now = Math.max(Date.now(), (entity.updatedAt ?? 0) + 1);
+  return { ...entity, updatedAt: now, rev: (entity.rev ?? 0) + 1 };
+}
+
+// ── Запись (локальные изменения) ───────────────────────
+
+export async function updateMeta(fn: (m: UserMeta) => UserMeta): Promise<void> {
+  const next = stamp(fn(state.meta));
+  setState({ meta: next });
+  await idb.put("meta", next, "meta");
+  await enqueue("meta", "meta", next.updatedAt);
+}
+
+export async function saveSession(session: WorkoutSession): Promise<void> {
+  const next = stamp(session);
+  setState({ sessions: { ...state.sessions, [next.id]: next } });
+  await idb.put("sessions", next);
+  await enqueue("session", next.id, next.updatedAt);
+}
+
+export async function deleteSession(id: string): Promise<void> {
+  const s = state.sessions[id];
+  if (!s) return;
+  await saveSession({ ...s, deletedAt: Date.now() });
+}
+
+export async function saveProgram(program: Program): Promise<void> {
+  const next = stamp(program);
+  setState({ programs: { ...state.programs, [next.id]: next } });
+  await idb.put("programs", next);
+  await enqueue("program", next.id, next.updatedAt!);
+}
+
+// ── Применение данных извне (облако, импорт) ───────────
+
+/** Принимает запись, если она новее локальной. Возвращает true, если локальная версия обновилась. */
+export async function applyRemote(kind: EntityKind, entity: UserMeta | WorkoutSession | Program): Promise<boolean> {
+  if (kind === "meta") {
+    const m = entity as UserMeta;
+    if (m.updatedAt <= state.meta.updatedAt) return false;
+    const next = normalizeMeta(m);
+    setState({ meta: next });
+    await idb.put("meta", next, "meta");
+    return true;
+  }
+  if (kind === "session") {
+    const s = entity as WorkoutSession;
+    const local = state.sessions[s.id];
+    if (local && local.updatedAt >= s.updatedAt) return false;
+    setState({ sessions: { ...state.sessions, [s.id]: s } });
+    await idb.put("sessions", s);
+    return true;
+  }
+  const p = entity as Program;
+  const local = state.programs[p.id];
+  if (local && (local.updatedAt ?? 0) >= (p.updatedAt ?? 0)) return false;
+  setState({ programs: { ...state.programs, [p.id]: p } });
+  await idb.put("programs", p);
+  return true;
+}
+
+/** Ставит запись в очередь отправки без изменения (например, когда локальная версия новее облачной). */
+export async function requeue(kind: EntityKind, id: string): Promise<void> {
+  const e = kind === "meta" ? state.meta : kind === "session" ? state.sessions[id] : state.programs[id];
+  if (!e) return;
+  await enqueue(kind, id, e.updatedAt ?? 0);
+}
+
+export function outboxEntries(): OutboxEntry[] {
+  return [...outbox.values()];
+}
+
+/** Убирает запись из очереди, только если с момента отправки она не менялась. */
+export async function ackOutbox(entry: OutboxEntry): Promise<void> {
+  const cur = outbox.get(entry.key);
+  if (!cur || cur.updatedAt !== entry.updatedAt) return;
+  outbox.delete(entry.key);
+  setSyncStatus({ pending: outbox.size });
+  await idb.delete("outbox", entry.key);
+}
+
+export function getEntity(kind: EntityKind, id: string): UserMeta | WorkoutSession | Program | undefined {
+  if (kind === "meta") return state.meta;
+  if (kind === "session") return state.sessions[id];
+  return state.programs[id];
+}
+
+export async function resetLocal(): Promise<void> {
+  await Promise.all((["meta", "sessions", "programs", "outbox", "kv"] as const).map((s) => idb.clear(s)));
+  outbox.clear();
+  setState({ meta: defaultMeta(), sessions: {}, programs: {}, sync: { ...state.sync, pending: 0 } });
+}
+
+// ── Селекторы ──────────────────────────────────────────
+
+export function liveSessions(s: State): WorkoutSession[] {
+  return Object.values(s.sessions).filter((x) => !x.deletedAt);
+}
+
+export function activeSession(s: State): WorkoutSession | null {
+  const list = liveSessions(s).filter((x) => x.status === "active");
+  return list.sort((a, b) => b.startedAt - a.startedAt)[0] ?? null;
+}
+
+export function doneSessions(s: State): WorkoutSession[] {
+  return liveSessions(s)
+    .filter((x) => x.status === "done")
+    .sort((a, b) => b.startedAt - a.startedAt);
+}
