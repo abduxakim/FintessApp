@@ -4,13 +4,13 @@ import { activeSession, getState, liveSessions, useStore } from "../../data/stor
 import type { SessionExercise } from "../../data/types";
 import { useNav } from "../../app/nav";
 import { startDraft } from "../../app/actions";
-import { updateDraft, updateDraftExercise, useDraft } from "../../app/draft";
+import { setDraftRemember, updateDraft, updateDraftExercise, useDraft } from "../../app/draft";
 import { addSet, makeSessionExercise, moveItem, swapExercise } from "../../domain/session";
 import { alternatives, isAvailable } from "../../domain/availability";
 import { exerciseForGroup, groupLoad, underloaded } from "../../domain/balance";
 import { fmtClock } from "../../domain/format";
 import { MUSCLES } from "../../data/seed/labels";
-import { Note, Sheet, TopBar, toast } from "../../ui/kit";
+import { Note, Segmented, Sheet, Stepper, TopBar, toast } from "../../ui/kit";
 import { Icon } from "../../ui/icons";
 import { ExercisePickerSheet } from "../profile/forms";
 import { itemTarget } from "./ProgramDetail";
@@ -46,6 +46,7 @@ export function Preview() {
   const state = useStore((s) => s);
   const [adding, setAdding] = useState(false);
   const [swapFor, setSwapFor] = useState<SessionExercise | null>(null);
+  const [editId, setEditId] = useState<string | null>(null);
   const profile = state.meta.profile;
   const loc = profile.locations[0] ?? "gym";
   const load = useMemo(() => groupLoad(liveSessions(state), EXERCISE_BY_ID, profile), [state, profile]);
@@ -137,12 +138,12 @@ export function Preview() {
                   <button style={{ background: "none", border: 0, padding: 0, textAlign: "left" }} onClick={() => nav.push({ name: "exercise", id: ex.id })}>
                     <span className="title">{e.circuit ? `Круг ${e.circuit.stations.map((x) => x.reps).join("-")}` : ex.name}</span>
                   </button>
-                  <span className="sub num">
+                  <button className="sub num" style={{ background: "none", border: 0, padding: 0, textAlign: "left", textDecoration: e.circuit ? "none" : "underline dotted" }} disabled={!!e.circuit} onClick={() => setEditId(e.id)} aria-label={`Изменить подходы и повторы: ${ex.name}`}>
                     {e.circuit
                       ? "сколько успеешь"
                       : `${itemTarget({ sets: e.targetSets, repsMin: e.repsMin ?? undefined, repsMax: e.repsMax ?? undefined, durationSec: e.durationSec ?? undefined })}${e.restSec ? ` · отдых ${fmtClock(e.restSec)}` : ""}`}
                     {BLOCK_LABEL[e.block] ? ` · ${BLOCK_LABEL[e.block]}` : ""}
-                  </span>
+                  </button>
                   {e.carried && <span className="xs" style={{ color: "var(--accent)" }}>добиваем с прошлой</span>}
                   {e.swappedFromId && <span className="xs muted">вместо «{EXERCISE_BY_ID[e.swappedFromId]?.name}»</span>}
                   {!e.circuit && (
@@ -194,8 +195,14 @@ export function Preview() {
           </button>
         </div>
         <p className="xs muted">
-          {mainCount} {mainCount === 1 ? "упражнение" : "упражнений"} в основной части. Изменения касаются только этой тренировки; чтобы поменять программу насовсем — «Изменить программу».
+          {mainCount} {mainCount === 1 ? "упражнение" : "упражнений"} в основной части. Нажми на подходы и повторы упражнения, чтобы их изменить.
         </p>
+        {draft.source === "program" && s.programId && state.meta.enrollment?.programId === s.programId && (
+          <label className="row small">
+            <input id="draft-remember" type="checkbox" checked={!!draft.remember} onChange={(e) => setDraftRemember(e.target.checked)} />
+            Запомнить изменения для следующих тренировок этого дня (подходы, повторы, отдых, добавленные упражнения)
+          </label>
+        )}
         <button className="btn primary big block" onClick={start}>
           <Icon name="play" size={18} /> Начать тренировку
         </button>
@@ -217,6 +224,42 @@ export function Preview() {
           }}
         />
       )}
+      {editId &&
+        (() => {
+          const e = s.exercises.find((x) => x.id === editId);
+          if (!e) return null;
+          const time = e.durationSec != null && e.repsMax == null;
+          const upd = (patch: Partial<SessionExercise>) => updateDraftExercise(e.id, (x) => ({ ...x, ...patch }));
+          return (
+            <Sheet title={EXERCISE_BY_ID[e.exerciseId]?.name ?? "Упражнение"} onClose={() => setEditId(null)}>
+              <Stepper label="Подходы" value={e.targetSets} min={1} max={10} onChange={(v) => updateDraftExercise(e.id, (x) => setSets(x, v))} />
+              {time ? (
+                <Stepper label="Секунды" value={e.durationSec ?? 30} min={10} max={600} step={5} onChange={(v) => upd({ durationSec: v })} />
+              ) : (
+                <>
+                  <Stepper label="Повторы от" value={e.repsMin ?? 8} min={1} max={50} onChange={(v) => upd({ repsMin: v, repsMax: Math.max(v, e.repsMax ?? v) })} />
+                  <Stepper label="Повторы до" value={e.repsMax ?? 12} min={1} max={60} onChange={(v) => upd({ repsMax: v, repsMin: Math.min(v, e.repsMin ?? v) })} />
+                </>
+              )}
+              <Stepper label="Отдых" value={e.restSec} min={0} max={300} step={15} fmt={fmtClock} onChange={(v) => upd({ restSec: v })} />
+              <div className="field">
+                <span className="label">Часть тренировки</span>
+                <Segmented
+                  value={e.block}
+                  onChange={(v) => upd({ block: v })}
+                  options={[
+                    { value: "warmup", label: "Разминка" },
+                    { value: "main", label: "Основная" },
+                    { value: "cooldown", label: "Заминка" },
+                  ]}
+                />
+              </div>
+              <button className="btn primary" onClick={() => setEditId(null)}>
+                Готово
+              </button>
+            </Sheet>
+          );
+        })()}
       {swapFor && (
         <Sheet title="Заменить на…" onClose={() => setSwapFor(null)}>
           <div className="list">

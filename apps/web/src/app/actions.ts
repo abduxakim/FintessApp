@@ -3,10 +3,11 @@ import { EXERCISES, EXERCISE_BY_ID, programById } from "../data/catalog";
 import { getDraft, setDraft } from "./draft";
 import type { Plan } from "../domain/plan-types";
 import { activeSession, getState, liveSessions, saveSession, updateMeta } from "../data/store";
-import type { CarryItem, Goal, Program, WorkoutSession } from "../data/types";
+import type { CarryItem, Goal, Program, ProgramItem, ProgramTweaks, UserMeta, WorkoutSession } from "../data/types";
 import type { NextAction } from "../domain/review";
 import { advanceEnrollment, buildSessionFromProgram, emptySession, finalizeSession, hasDoneSets, makeSessionExercise, programCycle } from "../domain/session";
 import { uuidv7 } from "../domain/ids";
+import { effectiveDay } from "../domain/tweaks";
 import { saveProgram } from "../data/store";
 
 export async function enroll(programId: string): Promise<void> {
@@ -36,6 +37,7 @@ export async function startProgramDay(program: Program, dayIndex: number): Promi
     all: EXERCISES,
     cycle: programCycle(en, program),
     carryOver: mine ? en?.carryOver : undefined,
+    tweaks: s.meta.programTweaks?.[program.id],
   });
   await saveSession(session);
   // Перенесённые упражнения добавлены в эту тренировку — очередь переноса очищаем.
@@ -96,6 +98,7 @@ export function prepareProgramDay(program: Program, dayIndex: number): void {
     all: EXERCISES,
     cycle: programCycle(en, program),
     carryOver: carry,
+    tweaks: s.meta.programTweaks?.[program.id],
   });
   setDraft({ session, usesCarry: carry.length > 0, source: "program" });
 }
@@ -135,6 +138,7 @@ export async function startDraft(): Promise<WorkoutSession | null> {
   const session: WorkoutSession = { ...d.session, id: uuidv7(now), status: "active", startedAt: now, createdAt: now, updatedAt: now };
   await saveSession(session);
   if (d.usesCarry) await updateMeta((m) => (m.enrollment ? { ...m, enrollment: { ...m.enrollment, carryOver: [] } } : m));
+  if (d.remember) await rememberSessionChanges(session);
   setDraft(null);
   return session;
 }
@@ -189,4 +193,96 @@ export async function copyProgram(src: Program): Promise<Program> {
 export async function deleteProgram(program: Program): Promise<void> {
   await saveProgram({ ...program, deletedAt: Date.now() });
   if (getState().meta.enrollment?.programId === program.id) await updateMeta((m) => ({ ...m, enrollment: null }));
+}
+
+// ── Личные правки программы ───────────────────────────
+
+type ItemPatch = Partial<Pick<ProgramItem, "sets" | "repsMin" | "repsMax" | "restSec" | "durationSec">>;
+
+function tweaksOf(m: UserMeta, programId: string): ProgramTweaks {
+  return m.programTweaks?.[programId] ?? {};
+}
+
+/** Добавить упражнение в день программы насовсем. */
+export async function addToProgramDay(programId: string, dayId: string, exerciseId: string, patch: ItemPatch = {}): Promise<void> {
+  const ex = EXERCISE_BY_ID[exerciseId];
+  if (!ex) return;
+  const time = ex.tracking === "time";
+  const compound = ex.mechanics === "compound";
+  const item: ProgramItem = {
+    id: `x-${uuidv7()}`,
+    exerciseId,
+    block: "main",
+    sets: 3,
+    ...(time ? { durationSec: 30 } : { repsMin: compound ? 6 : 10, repsMax: compound ? 10 : 15 }),
+    restSec: compound ? 120 : 60,
+    ...patch,
+  };
+  await updateMeta((m) => {
+    const t = tweaksOf(m, programId);
+    const list = t.extras?.[dayId] ?? [];
+    if (list.some((x) => x.exerciseId === exerciseId)) return m;
+    return { ...m, programTweaks: { ...m.programTweaks, [programId]: { ...t, extras: { ...t.extras, [dayId]: [...list, item] } } } };
+  });
+}
+
+export async function removeFromProgramDay(programId: string, dayId: string, itemId: string): Promise<void> {
+  await updateMeta((m) => {
+    const t = tweaksOf(m, programId);
+    return { ...m, programTweaks: { ...m.programTweaks, [programId]: { ...t, extras: { ...t.extras, [dayId]: (t.extras?.[dayId] ?? []).filter((x) => x.id !== itemId) } } } };
+  });
+}
+
+/** Сохранить подходы/повторы упражнения программы для будущих тренировок. */
+export async function saveItemPatches(programId: string, patches: { dayId: string; itemId: string; patch: ItemPatch }[]): Promise<void> {
+  if (!patches.length) return;
+  await updateMeta((m) => {
+    const t = { ...tweaksOf(m, programId) };
+    const extras = { ...t.extras };
+    const overrides = { ...t.overrides };
+    for (const { dayId, itemId, patch } of patches) {
+      if (extras[dayId]?.some((x) => x.id === itemId)) extras[dayId] = extras[dayId].map((x) => (x.id === itemId ? { ...x, ...patch } : x));
+      else overrides[itemId] = { ...overrides[itemId], ...patch };
+    }
+    return { ...m, programTweaks: { ...m.programTweaks, [programId]: { ...t, extras, overrides } } };
+  });
+}
+
+export async function resetProgramTweaks(programId: string): Promise<void> {
+  await updateMeta((m) => {
+    const next = { ...m.programTweaks };
+    delete next[programId];
+    return { ...m, programTweaks: next };
+  });
+}
+
+/** Перенести в программу изменения из тренировки: подходы/повторы/отдых и добавленные упражнения. */
+export async function rememberSessionChanges(session: WorkoutSession, opts: { useDoneSets?: boolean; only?: string[] } = {}): Promise<number> {
+  const st = getState();
+  const program = programById(st, session.programId);
+  if (!program || program.kind !== "program" || !session.dayId) return 0;
+  const rawDay = program.days.find((d) => d.id === session.dayId);
+  if (!rawDay) return 0;
+  const day = effectiveDay(rawDay, st.meta.programTweaks?.[program.id]);
+  const patches: { dayId: string; itemId: string; patch: ItemPatch }[] = [];
+  let added = 0;
+  for (const e of session.exercises) {
+    if (e.circuit || e.carried || e.block !== "main") continue;
+    if (opts.only && !opts.only.includes(e.id)) continue;
+    const sets = opts.useDoneSets ? e.sets.filter((x) => x.done).length || e.targetSets : e.targetSets;
+    const item = e.plannedItemId ? day.items.find((i) => i.id === e.plannedItemId) : undefined;
+    if (item) {
+      const patch: ItemPatch = {};
+      if (sets !== item.sets) patch.sets = sets;
+      if (e.repsMin != null && e.repsMin !== item.repsMin) patch.repsMin = e.repsMin;
+      if (e.repsMax != null && e.repsMax !== item.repsMax) patch.repsMax = e.repsMax;
+      if (e.restSec !== item.restSec) patch.restSec = e.restSec;
+      if (Object.keys(patch).length) patches.push({ dayId: day.id, itemId: item.id, patch });
+    } else if (!e.plannedItemId && !day.items.some((i) => i.exerciseId === e.exerciseId)) {
+      await addToProgramDay(program.id, day.id, e.exerciseId, { sets, repsMin: e.repsMin ?? undefined, repsMax: e.repsMax ?? undefined, restSec: e.restSec, durationSec: e.durationSec ?? undefined });
+      added++;
+    }
+  }
+  await saveItemPatches(program.id, patches);
+  return patches.length + added;
 }

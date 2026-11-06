@@ -1,6 +1,4 @@
 import React, { useMemo, useState } from "react";
-import { MotionView } from "../../ui/motion/MotionView";
-import { EXERCISE_MOTION, MOTIONS } from "../../ui/motion/motions";
 import { EXERCISES, EXERCISE_BY_ID, progressionFor } from "../../data/catalog";
 import { CATEGORIES, DIFFICULTY, EQUIPMENT, LOCATIONS, MUSCLES, ZONES } from "../../data/seed/labels";
 import { doneSessions, useStore } from "../../data/store";
@@ -55,14 +53,6 @@ export function ExerciseInfo({ id, compact }: { id: string; compact?: boolean })
       )}
       {tab === "how" && (
         <div className="stack gap-l">
-          {EXERCISE_MOTION[ex.id] ? (
-            <div className="stack gap-s">
-              <MotionView motion={MOTIONS[EXERCISE_MOTION[ex.id]]} equipment={ex.equipment} label={ex.name} />
-              <p className="xs muted">Схема движения: показывает траекторию, а не все детали техники. Жёлтым — рабочие части тела.</p>
-            </div>
-          ) : (
-            <div className="empty small">Для этого упражнения пока нет схемы движения — посмотри видео.</div>
-          )}
           <a className="btn block" href={videoSearchUrl(ex.name)} target="_blank" rel="noopener noreferrer">
             <Icon name="video" size={18} /> Видео с техникой на YouTube
           </a>

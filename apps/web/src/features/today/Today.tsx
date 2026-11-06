@@ -12,6 +12,7 @@ import { itemTarget } from "../workouts/ProgramDetail";
 import { Icon } from "../../ui/icons";
 import { ZONES } from "../../data/seed/labels";
 import { pickVariant, programCycle } from "../../domain/session";
+import { effectiveDay } from "../../domain/tweaks";
 import { updateMeta } from "../../data/store";
 
 const WEEKDAYS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
@@ -23,7 +24,7 @@ export function Today() {
   const done = useMemo(() => doneSessions(state), [state]);
   const en = state.meta.enrollment;
   const program = programById(state, en?.programId);
-  const day = program && en ? program.days[en.nextDayIndex % program.days.length] : null;
+  const day = program && en ? effectiveDay(program.days[en.nextDayIndex % program.days.length], state.meta.programTweaks?.[program.id]) : null;
   const now = Date.now();
   const weekStart = startOfWeek(now);
   const weekDone = done.filter((s) => s.startedAt >= weekStart);

@@ -2,7 +2,7 @@
 //  1) Claude (capability sample) получает запрос, профиль без веса и список доступных упражнений;
 //  2) если Claude недоступен — простой разбор ключевых слов.
 // Ответ всегда проверяется: только упражнения из каталога, числа в разумных пределах.
-import type { Exercise, ItemBlock, Location, Profile } from "../data/types";
+import type { Exercise, ItemBlock, Location, MuscleId, Profile } from "../data/types";
 import { MUSCLES, GOALS, LEVELS, LOCATIONS, ZONES } from "../data/seed/labels";
 import { isAvailable } from "./availability";
 import { exerciseForGroup, type Group, type GroupLoad } from "./balance";
@@ -10,17 +10,46 @@ import { exerciseForGroup, type Group, type GroupLoad } from "./balance";
 import type { Plan, PlanItem } from "./plan-types";
 export type { Plan, PlanItem };
 
-const KEYWORDS: [RegExp, Group | "light" | "calves" | "forearms"][] = [
-  [/спин|тяг|подтяг|широчайш/i, "Спина"],
-  [/груд|жим лёж|жим леж/i, "Грудь"],
-  [/плеч|дельт/i, "Плечи"],
-  [/рук|бицеп|трицеп/i, "Руки"],
-  [/ног|присед|бедр|ягод|квадри/i, "Ноги"],
-  [/пресс|кор\b|живот/i, "Кор"],
-  [/икр/i, "calves"],
-  [/предплеч|хват/i, "forearms"],
-  [/лёгк|легк|устал|восстан|разгруз|мобил|растяж/i, "light"],
+type Target = { label: string; group?: Group; muscles?: MuscleId[] };
+
+// Порядок важен: сначала узкие мышцы («бицепс бедра», «предплечья»), затем группы.
+// Найденное слово вырезается из текста, чтобы «предплечья» не сработали как «плечи».
+const KEYWORDS: [RegExp, Target | "light"][] = [
+  [/лёгк\S*|легк\S*|устал\S*|восстан\S*|разгруз\S*|мобил\S*|растяж\S*/gi, "light"],
+  [/бицепс\S* бедр\S*|задн\S* поверхн\S*/gi, { label: "Бицепс бедра", muscles: ["hamstrings"] }],
+  [/предплеч\S*|хват\S*/gi, { label: "Предплечья", muscles: ["forearms"] }],
+  [/трицеп\S*/gi, { label: "Трицепс", muscles: ["triceps"] }],
+  [/бицеп\S*/gi, { label: "Бицепс", muscles: ["biceps"] }],
+  [/икр\S*/gi, { label: "Икры", muscles: ["calves"] }],
+  [/трапец\S*/gi, { label: "Трапеции", muscles: ["traps"] }],
+  [/ягодиц\S*/gi, { label: "Ягодицы", muscles: ["glutes"] }],
+  [/квадри\S*/gi, { label: "Квадрицепс", muscles: ["quads"] }],
+  [/задн\S* дельт\S*/gi, { label: "Задняя дельта", muscles: ["rear_delts"] }],
+  [/средн\S* дельт\S*|ширин\S* плеч\S*/gi, { label: "Средняя дельта", muscles: ["side_delts"] }],
+  [/пресс\S*|(?<=[\s,.])кор(?=[\s,.])|живот\S*/gi, { label: "Пресс", muscles: ["abs", "obliques"] }],
+  [/спин\S*|тяг\S*|подтяг\S*|широчайш\S*/gi, { label: "Спина", group: "Спина" }],
+  [/груд\S*|жим\S* лёж\S*|жим\S* леж\S*/gi, { label: "Грудь", group: "Грудь" }],
+  [/плеч\S*|дельт\S*/gi, { label: "Плечи", group: "Плечи" }],
+  [/рук\S*/gi, { label: "Руки", group: "Руки" }],
+  [/ног\S*|присед\S*|бедр\S*/gi, { label: "Ноги", group: "Ноги" }],
 ];
+
+export function detectTargets(text: string): (Target | "light")[] {
+  let t = ` ${text.toLowerCase()} `;
+  const out: { at: number; target: Target | "light" }[] = [];
+  for (const [re, target] of KEYWORDS) {
+    re.lastIndex = 0;
+    const m = re.exec(t);
+    if (m) {
+      out.push({ at: m.index, target });
+      // Заменяем пробелами той же длины, чтобы позиции остальных слов не сдвигались.
+      t = t.replace(re, (x) => " ".repeat(x.length));
+    }
+    re.lastIndex = 0;
+  }
+  // В том порядке, как написано в запросе.
+  return out.sort((a, b) => a.at - b.at).map((x) => x.target);
+}
 
 export function detectLocation(text: string, fallback: Location): Location {
   if (/улиц|площадк|турник|брус/i.test(text)) return "outdoor";
@@ -39,7 +68,9 @@ export function detectMinutes(text: string): number | null {
 export function localPlan(text: string, profile: Profile, all: Exercise[], byId: Record<string, Exercise>, load: GroupLoad[]): Plan {
   const location = detectLocation(text, profile.locations[0] ?? "gym");
   const minutes = detectMinutes(text) ?? profile.sessionMin;
-  const tags = KEYWORDS.filter(([re]) => re.test(text)).map(([, g]) => g);
+  const found = detectTargets(text);
+  const light = found.includes("light");
+  let targets = found.filter((t): t is Target => t !== "light");
   const available = (e: Exercise) => isAvailable(e, profile, location);
   const items: PlanItem[] = [];
   const used: string[] = [];
@@ -50,7 +81,7 @@ export function localPlan(text: string, profile: Profile, all: Exercise[], byId:
     items.push({ exerciseId: e.id, sets, repsMin: time ? null : Array.isArray(reps) ? reps[0] : null, repsMax: time ? null : Array.isArray(reps) ? reps[1] : null, durationSec: time ? (typeof reps === "number" ? reps : 30) : null, restSec: rest, note: "", block });
   };
 
-  if (tags.includes("light")) {
+  if (light && !targets.length) {
     for (const id of ["cardio_warmup", "cat_cow", "thoracic_open_book", "worlds_greatest_stretch", "band_pull_apart", "wall_slide", "dead_hang", "hip_flexor_stretch", "child_pose"]) {
       const e = byId[id];
       if (e && available(e)) add(e, e.tracking === "time" ? 1 : 2, e.tracking === "time" ? (id === "cardio_warmup" ? 300 : 40) : [8, 10], 30, e.category === "stretch" ? "cooldown" : "main");
@@ -58,37 +89,55 @@ export function localPlan(text: string, profile: Profile, all: Exercise[], byId:
     return { title: "Лёгкая тренировка", rationale: "Подвижность и восстановление без тяжёлой нагрузки. Составлено по ключевым словам.", items, source: "local" };
   }
 
-  let groups = tags.filter((t): t is Group => t !== "calves" && t !== "forearms" && t !== "light");
-  if (!groups.length && !tags.length) groups = load.filter((l) => l.sets < l.target).sort((a, b) => a.sets / a.target - b.sets / b.target).slice(0, 2).map((l) => l.group);
+  const fromBalance = !targets.length;
+  if (fromBalance)
+    targets = load
+      .filter((l) => l.sets < l.target)
+      .sort((a, b) => a.sets / a.target - b.sets / b.target)
+      .slice(0, 2)
+      .map((l) => ({ label: l.group, group: l.group }));
   const slots = Math.max(3, Math.min(9, Math.round((minutes - 15) / 9)));
 
   add(byId.cardio_warmup, 1, 300, 0, "warmup");
-  if (groups.some((g) => g === "Грудь" || g === "Спина" || g === "Плечи") || profile.problemZones.some((z) => z.zone === "shoulder")) {
+  const upper = targets.some((t) => t.group === "Грудь" || t.group === "Спина" || t.group === "Плечи" || t.muscles?.some((m) => ["triceps", "biceps", "rear_delts", "side_delts", "traps"].includes(m)));
+  if (upper || profile.problemZones.some((z) => z.zone === "shoulder")) {
     add(byId.band_pull_apart, 2, [15, 15], 30, "warmup");
     add(byId.band_external_rotation, 2, [12, 15], 30, "warmup");
   }
 
-  const perGroup = Math.max(1, Math.floor(slots / Math.max(1, groups.length + (tags.includes("calves") ? 1 : 0) + (tags.includes("forearms") ? 1 : 0))));
-  for (const g of groups) {
-    for (let i = 0; i < perGroup; i++) {
-      const e = exerciseForGroup(g, all, available, used);
-      if (!e) break;
-      const compound = e.mechanics === "compound";
-      add(e, compound ? 4 : 3, compound ? [6, 10] : [10, 15], compound ? 120 : 60);
+  // Группам — больше слотов, отдельным мышцам — по 2.
+  const groupCount = targets.filter((t) => t.group).length;
+  const muscleCount = targets.length - groupCount;
+  const perGroup = Math.max(1, Math.floor((slots - muscleCount * 2) / Math.max(1, groupCount)));
+  for (const t of targets) {
+    if (t.group) {
+      for (let i = 0; i < perGroup; i++) {
+        const e = exerciseForGroup(t.group, all, available, used);
+        if (!e) break;
+        const compound = e.mechanics === "compound";
+        add(e, compound ? 4 : 3, compound ? [6, 10] : [10, 15], compound ? 120 : 60);
+      }
+    } else if (t.muscles) {
+      const pool = all
+        .filter((x) => (x.category === "strength" || x.category === "calisthenics") && x.tracking !== "rounds" && x.primary.some((m) => t.muscles!.includes(m)) && available(x))
+        .sort((a, b) => Number(b.primary[0] === t.muscles![0]) - Number(a.primary[0] === t.muscles![0]) || a.difficulty - b.difficulty);
+      let n = 0;
+      for (const e of pool) {
+        if (n >= Math.max(2, Math.min(3, perGroup))) break;
+        if (used.includes(e.id)) continue;
+        const compound = e.mechanics === "compound";
+        add(e, 3, compound ? [6, 10] : [10, 15], compound ? 90 : 60);
+        n++;
+      }
     }
   }
-  const pickMuscle = (m: "calves" | "forearms", n: number) => {
-    for (const e of all.filter((x) => x.primary.includes(m) && available(x)).slice(0, n)) add(e, 3, [12, 15], 45);
-  };
-  if (tags.includes("calves")) pickMuscle("calves", Math.max(2, perGroup));
-  if (tags.includes("forearms")) pickMuscle("forearms", Math.max(2, perGroup));
   add(byId.doorway_pec_stretch, 1, 30, 0, "cooldown");
   add(byId.lat_stretch, 1, 30, 0, "cooldown");
 
-  const names = [...groups, ...(tags.includes("calves") ? ["Икры"] : []), ...(tags.includes("forearms") ? ["Предплечья"] : [])];
+  const names = targets.map((t) => t.label);
   return {
     title: names.length ? names.join(" + ") : "Своя тренировка",
-    rationale: tags.length ? `Составлено по ключевым словам: ${names.join(", ").toLowerCase()}, около ${minutes} мин.` : `В запросе нет групп мышц — взял те, что недобрали за неделю: ${names.join(", ").toLowerCase()}.`,
+    rationale: !fromBalance ? `Составлено по ключевым словам: ${names.join(", ").toLowerCase()}, около ${minutes} мин.` : `В запросе нет групп мышц — взял те, что недобрали за неделю: ${names.join(", ").toLowerCase()}.`,
     items,
     source: "local",
   };

@@ -1,6 +1,7 @@
-import type { CarryItem, CircuitStation, Enrollment, Exercise, ItemBlock, Location, Program, ProgramItem, Profile, SessionExercise, SetLog, WorkoutSession } from "../data/types";
+import type { ProgramTweaks, CarryItem, CircuitStation, Enrollment, Exercise, ItemBlock, Location, Program, ProgramItem, Profile, SessionExercise, SetLog, WorkoutSession } from "../data/types";
 import { alternatives, isAvailable, zoneCaution } from "./availability";
 import { overloadHint } from "./overload";
+import { effectiveDay } from "./tweaks";
 import { lastPerformance } from "./history";
 import { e1rm, weightForReps } from "./strength";
 import { uuidv7 } from "./ids";
@@ -150,11 +151,13 @@ export function buildSessionFromProgram(args: {
   cycle?: number;
   /** Упражнения, которые нужно добить с прошлой тренировки. */
   carryOver?: CarryItem[];
+  /** Личные правки программы (добавленные упражнения, изменённые подходы). */
+  tweaks?: ProgramTweaks;
   now?: number;
 }): WorkoutSession {
   const now = args.now ?? Date.now();
   const cycle = args.cycle ?? 0;
-  const day = args.program.days[args.dayIndex % args.program.days.length];
+  const day = effectiveDay(args.program.days[args.dayIndex % args.program.days.length], args.tweaks);
   const location = args.location ?? args.profile?.locations[0] ?? "gym";
   const exercises = day.items
     .map((it) => fromItem({ ...it, exerciseId: pickVariant(it, cycle) }, args.exerciseById, args.all, args.profile, location, args.sessions))

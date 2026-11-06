@@ -1,11 +1,12 @@
 import React, { useEffect, useRef, useState } from "react";
-import { EXERCISES, EXERCISE_BY_ID } from "../../data/catalog";
+import { EXERCISES, EXERCISE_BY_ID, programById } from "../../data/catalog";
 import { capability } from "../../data/runtime";
-import { updateMeta } from "../../data/store";
+import { getState, updateMeta, useStore } from "../../data/store";
 import { MUSCLES } from "../../data/seed/labels";
 import { useNav } from "../../app/nav";
 import { getDraft, updateDraft } from "../../app/draft";
-import { prepareCustom } from "../../app/actions";
+import { addToProgramDay, prepareCustom } from "../../app/actions";
+import { bestDayFor } from "../../domain/tweaks";
 import { buildPhotoPrompt, compressImage, parsePhotoResult, type PhotoResult } from "../../domain/photo";
 import { Note, TopBar, toast } from "../../ui/kit";
 import { Icon } from "../../ui/icons";
@@ -26,6 +27,10 @@ export function PhotoScreen() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<PhotoResult | null>(null);
   const [picked, setPicked] = useState<Set<string>>(new Set());
+  // Подходящий день программы для каждого найденного упражнения (выбирается автоматически, можно сменить).
+  const [dayFor, setDayFor] = useState<Record<string, number>>({});
+  const program = useStore((s) => programById(s, s.meta.enrollment?.programId));
+  const fromDraft = !!getDraft();
   useEffect(() => () => {
     if (img) URL.revokeObjectURL(img.url);
   }, [img]);
@@ -58,6 +63,11 @@ export function PhotoScreen() {
       } else {
         setResult(r);
         setPicked(new Set([...r.exerciseIds, ...r.newExercises.map((e) => e.id)]));
+        const prog = programById(getState(), getState().meta.enrollment?.programId);
+        if (prog) {
+          const lookup = { ...EXERCISE_BY_ID, ...Object.fromEntries(r.newExercises.map((e) => [e.id, e])) };
+          setDayFor(Object.fromEntries([...r.exerciseIds.map((id) => EXERCISE_BY_ID[id]), ...r.newExercises].map((e) => [e.id, bestDayFor(prog, e, lookup)])));
+        }
       }
     } catch (e) {
       const code = (e as { code?: string })?.code;
@@ -92,6 +102,23 @@ export function PhotoScreen() {
     });
     toast(`Добавлено: ${ids.length}`);
     nav.backThen(() => nav.push({ name: "preview" }));
+  };
+
+  /** Добавить выбранные упражнения в подходящие дни программы — насовсем. */
+  const addToProgram = async () => {
+    if (!result || !program) return;
+    const fresh = result.newExercises.filter((e) => picked.has(e.id));
+    if (fresh.length) await updateMeta((m) => ({ ...m, customExercises: [...(m.customExercises ?? []), ...fresh] }));
+    const ids = [...result.exerciseIds, ...fresh.map((e) => e.id)].filter((id) => picked.has(id));
+    if (!ids.length) return toast("Ничего не выбрано");
+    const days = new Set<string>();
+    for (const id of ids) {
+      const day = program.days[dayFor[id] ?? 0];
+      await addToProgramDay(program.id, day.id, id);
+      days.add(day.name);
+    }
+    toast(`Добавлено в программу: ${[...days].join(", ")}`);
+    nav.backThen(() => nav.push({ name: "program", id: program.id }));
   };
 
   const saveOnly = async () => {
@@ -177,14 +204,41 @@ export function PhotoScreen() {
                       {e.id.startsWith("custom_") && <span className="pill warn">новое — проверь</span>}
                     </div>
                     <div className="sub">{e.primary.map((m) => MUSCLES[m].name).join(", ")}</div>
+                    {program && program.days.length > 0 && (
+                      <button
+                        type="button"
+                        className="chip"
+                        style={{ marginTop: 6, minHeight: 30 }}
+                        aria-label={`День для «${e.name}»: ${program.days[dayFor[e.id] ?? 0].name}. Нажми, чтобы сменить`}
+                        onClick={(ev) => {
+                          ev.preventDefault();
+                          setDayFor((d) => ({ ...d, [e.id]: ((d[e.id] ?? 0) + 1) % program.days.length }));
+                        }}
+                      >
+                        → {program.days[dayFor[e.id] ?? 0].name}
+                        {program.days[dayFor[e.id] ?? 0].focus ? ` · ${program.days[dayFor[e.id] ?? 0].focus}` : ""}
+                      </button>
+                    )}
                   </div>
                 </label>
               ))}
             </div>
             {result.newExercises.length > 0 && <p className="xs muted">Новые упражнения описал Claude по фото — технику стоит проверить по видео или с тренером. Они сохранятся в библиотеке с пометкой «проверить».</p>}
-            <button className="btn primary big block" onClick={apply}>
-              <Icon name="plus" size={18} /> Добавить в тренировку
-            </button>
+            {program ? (
+              <>
+                <p className="xs muted">День программы подобран по мышцам. Нажми на день, чтобы выбрать другой.</p>
+                <button className="btn primary big block" onClick={addToProgram}>
+                  <Icon name="plus" size={18} /> Добавить в программу «{program.name}»
+                </button>
+                <button className="btn block" onClick={apply}>
+                  {fromDraft ? "Только в эту тренировку" : "Только в одну тренировку"}
+                </button>
+              </>
+            ) : (
+              <button className="btn primary big block" onClick={apply}>
+                <Icon name="plus" size={18} /> Добавить в тренировку
+              </button>
+            )}
             {result.newExercises.length > 0 && (
               <button className="btn block" onClick={saveOnly}>
                 Только сохранить новые в библиотеку

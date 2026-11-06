@@ -7,7 +7,7 @@ import { deleteProgram, enroll } from "../../app/actions";
 import { moveItem } from "../../domain/session";
 import { uuidv7 } from "../../domain/ids";
 import { fmtClock } from "../../domain/format";
-import { Confirm, Segmented, Sheet, TopBar, toast } from "../../ui/kit";
+import { Confirm, Segmented, Sheet, Stepper, TopBar, toast } from "../../ui/kit";
 import { Icon } from "../../ui/icons";
 import { ExercisePickerSheet } from "../profile/forms";
 import { itemTarget } from "./ProgramDetail";
@@ -24,25 +24,6 @@ async function mutate(id: string, fn: (p: Program) => Program) {
   const next = fn(cur);
   // Краткое описание обновляется само: названия дней по порядку.
   await saveProgram({ ...next, summary: next.days.map((d) => d.name).join(" · "), daysPerWeek: next.days.length });
-}
-
-function Stepper({ label, value, min, max, step = 1, onChange, fmt }: { label: string; value: number; min: number; max: number; step?: number; onChange: (v: number) => void; fmt?: (v: number) => string }) {
-  return (
-    <div className="row" style={{ justifyContent: "space-between" }}>
-      <span className="small dim">{label}</span>
-      <div className="stepper">
-        <button aria-label={`${label}: меньше`} onClick={() => onChange(Math.max(min, value - step))}>
-          <Icon name="minus" size={16} />
-        </button>
-        <span className="v" style={{ minWidth: "4ch" }}>
-          {fmt ? fmt(value) : value}
-        </span>
-        <button aria-label={`${label}: больше`} onClick={() => onChange(Math.min(max, value + step))}>
-          <Icon name="plus" size={16} />
-        </button>
-      </div>
-    </div>
-  );
 }
 
 function ItemSheet({ item, onSave, onClose }: { item: ProgramItem; onSave: (i: ProgramItem) => void; onClose: () => void }) {

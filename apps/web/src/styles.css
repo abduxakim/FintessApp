@@ -1130,69 +1130,6 @@ button.list-item:active {
   color: var(--accent);
 }
 
-.motion {
-  position: relative;
-  background: var(--surface-2);
-  border: 1px solid var(--line);
-  border-radius: var(--r-l);
-  overflow: hidden;
-}
-.motion svg {
-  display: block;
-  width: 100%;
-  max-width: 340px;
-  height: auto;
-  margin: 0 auto;
-}
-.motion-toggle {
-  position: absolute;
-  right: 6px;
-  bottom: 6px;
-}
-.mv-body {
-  stroke: var(--fg-2);
-  fill: none;
-}
-.mv-hl {
-  stroke: var(--accent);
-  fill: none;
-}
-.mv-head {
-  fill: var(--fg-2);
-}
-.mv-floor {
-  stroke: var(--line);
-  stroke-width: 2;
-}
-.mv-prop {
-  fill: var(--raise);
-}
-.mv-prop-line {
-  stroke: var(--muted);
-  stroke-linecap: round;
-}
-.mv-plate {
-  fill: var(--muted);
-  stroke: var(--bg);
-  stroke-width: 1;
-}
-.mv-bar {
-  stroke: var(--muted);
-}
-.mv-cable {
-  stroke: var(--muted);
-  stroke-width: 1;
-  stroke-dasharray: 3 3;
-}
-.gallery {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 6px;
-  padding: 8px;
-}
-.gallery .motion svg {
-  max-width: none;
-}
 
 .photo-preview {
   width: 100%;
@@ -1213,4 +1150,20 @@ button.empty {
 a.btn {
   color: inherit;
   text-decoration: none;
+}
+/* Содержимое нижнего листа не сжимается — лист прокручивается целиком. */
+.sheet > * {
+  flex-shrink: 0;
+}
+.sheet {
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+/* Кнопки по две в ряд: длинный текст переносится, а не уходит за край экрана. */
+.grid-2 > .btn {
+  white-space: normal;
+  min-width: 0;
+  text-align: center;
+  line-height: 1.2;
+  padding-block: 8px;
 }

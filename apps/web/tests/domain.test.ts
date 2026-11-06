@@ -293,7 +293,7 @@ describe("сводка", () => {
 
 import { overloadHint } from "../src/domain/overload";
 import { groupLoad, underloaded } from "../src/domain/balance";
-import { buildPrompt, detectMinutes, localPlan, parsePlan } from "../src/domain/planner";
+import { buildPrompt, detectMinutes, detectTargets, localPlan, parsePlan } from "../src/domain/planner";
 
 describe("прогрессия веса", () => {
   const bench = EXERCISE_BY_ID.bench_press;
@@ -341,6 +341,20 @@ describe("тренировка по запросу", () => {
     expect(groups.flat().some((m) => ["quads", "glutes", "hamstrings"].includes(m))).toBe(true);
     expect(detectMinutes("на 40 минут")).toBe(40);
   });
+  it("отдельные мышцы: «грудь и трицепс» — именно трицепс, а не любые руки", () => {
+    const plan = localPlan("Грудь и трицепс", p, EXERCISES, EXERCISE_BY_ID, load);
+    expect(plan.title).toBe("Грудь + Трицепс");
+    const main = plan.items.filter((i) => i.block === "main").map((i) => EXERCISE_BY_ID[i.exerciseId]);
+    expect(main.some((e) => e.primary.includes("triceps"))).toBe(true);
+    expect(main.some((e) => e.primary.includes("biceps"))).toBe(false);
+    expect(main.some((e) => e.primary.includes("chest"))).toBe(true);
+  });
+  it("«предплечья» не превращаются в плечи, «бицепс бедра» — не бицепс", () => {
+    expect(detectTargets("предплечья").map((t) => (t === "light" ? t : t.label))).toEqual(["Предплечья"]);
+    expect(detectTargets("бицепс бедра и икры").map((t) => (t === "light" ? t : t.label))).toEqual(["Бицепс бедра", "Икры"]);
+    expect(detectTargets("короткая на руки").map((t) => (t === "light" ? t : t.label))).toEqual(["Руки"]);
+    expect(detectTargets("спина, кор").map((t) => (t === "light" ? t : t.label))).toEqual(["Спина", "Пресс"]);
+  });
   it("икры находятся", () => {
     const plan = localPlan("хочу икры", p, EXERCISES, EXERCISE_BY_ID, load);
     expect(plan.items.filter((i) => EXERCISE_BY_ID[i.exerciseId].primary.includes("calves")).length).toBeGreaterThanOrEqual(2);
@@ -362,51 +376,10 @@ describe("тренировка по запросу", () => {
   });
 });
 
-import { solve, lerpPose, L } from "../src/ui/motion/engine";
-import { MOTIONS, EXERCISE_MOTION } from "../src/ui/motion/motions";
 import { parsePhotoResult } from "../src/domain/photo";
+import { bestDayFor, effectiveDay } from "../src/domain/tweaks";
+import { MAP_MUSCLES } from "../src/ui/BodyMap";
 import { registerCustom, sanitizeCustom } from "../src/data/custom";
-
-describe("схемы движений", () => {
-  const dist = (a: number[], b: number[]) => Math.hypot(a[0] - b[0], a[1] - b[1]);
-  it("каждая схема привязана к существующему упражнению", () => {
-    for (const [ex, m] of Object.entries(EXERCISE_MOTION)) {
-      expect(EXERCISE_BY_ID[ex], ex).toBeDefined();
-      expect(MOTIONS[m], m).toBeDefined();
-    }
-  });
-  it("длины костей постоянны во всех позах и между ними", () => {
-    for (const [key, m] of Object.entries(MOTIONS)) {
-      expect(m.frames.length, key).toBeGreaterThanOrEqual(2);
-      for (const t of [0, 0.33, 0.5, 0.9, 1]) {
-        const sk = solve(lerpPose(m.frames[0], m.frames[m.frames.length - 1], t), m.view);
-        for (const a of sk.arms) {
-          expect(dist(a.shoulder, a.elbow), key).toBeCloseTo(L.upper, 0);
-          expect(dist(a.elbow, a.hand), key).toBeCloseTo(L.fore, 0);
-        }
-        for (const l of sk.legs) {
-          expect(dist(l.hip, l.knee), key).toBeCloseTo(L.thigh, 0);
-          expect(dist(l.knee, l.ankle), key).toBeCloseTo(L.shin, 0);
-        }
-        expect(dist(sk.hip, sk.shoulder)).toBeCloseTo(L.torso, 0);
-      }
-    }
-  });
-  it("фигура помещается в кадр", () => {
-    for (const [key, m] of Object.entries(MOTIONS)) {
-      for (const f of m.frames) {
-        const sk = solve(f, m.view);
-        const pts = [sk.headC, sk.hip, sk.shoulder, ...sk.arms.flatMap((a) => [a.elbow, a.hand]), ...sk.legs.flatMap((l) => [l.knee, l.ankle])];
-        for (const p of pts) {
-          expect(p[0], key).toBeGreaterThan(-5);
-          expect(p[0], key).toBeLessThan(205);
-          expect(p[1], key).toBeGreaterThan(-5);
-          expect(p[1], key).toBeLessThan(205);
-        }
-      }
-    }
-  });
-});
 
 describe("фото тренажёра", () => {
   it("берёт только упражнения из каталога и проверяет новые", () => {
@@ -437,5 +410,37 @@ describe("фото тренажёра", () => {
     expect(EXERCISES.length).toBe(before + 1);
     expect(EXERCISE_BY_ID.custom_test1234.name).toBe("Тест");
     expect(EXERCISE_BY_ID.bench_press.name).toBe("Жим штанги лёжа");
+  });
+});
+
+describe("правки программы", () => {
+  const recomp = PROGRAMS.find((x) => x.id === "recomp_back_chest")!;
+  const split = PROGRAMS.find((x) => x.id === "split_back_chest_shoulders")!;
+  it("добавленные упражнения встают перед заминкой, подходы меняются", () => {
+    const day = recomp.days[0];
+    const benchItem = day.items.find((i) => i.exerciseId === "bench_press")!;
+    const eff = effectiveDay(day, {
+      extras: { [day.id]: [{ id: "x-1", exerciseId: "back_extension", block: "main", sets: 3, repsMin: 10, repsMax: 15, restSec: 60 }] },
+      overrides: { [benchItem.id]: { sets: 5, repsMin: 12, repsMax: 4 } },
+    });
+    const i = eff.items.findIndex((x) => x.id === "x-1");
+    expect(eff.items[i + 1].block).toBe("cooldown");
+    expect(eff.items.find((x) => x.id === benchItem.id)).toMatchObject({ sets: 5, repsMin: 4, repsMax: 12 });
+    expect(day.items.find((x) => x.id === benchItem.id)!.sets).toBe(4); // шаблон не меняется
+  });
+  it("мусор в правках из облака не ломает день", () => {
+    const day = recomp.days[0];
+    const eff = effectiveDay(day, { extras: { [day.id]: [null as never, { id: 5 } as never] }, overrides: { x: { sets: "много" as never } } });
+    expect(eff.items.length).toBe(day.items.length);
+  });
+  it("подходящий день для упражнения по мышцам", () => {
+    const names = (id: string) => split.days[bestDayFor(split, EXERCISE_BY_ID[id], EXERCISE_BY_ID)].name;
+    expect(names("back_extension")).toBe("Спина + бицепс");
+    expect(names("pec_deck")).toBe("Грудь + трицепс");
+    expect(names("leg_press")).toBe("Плечи + ноги + предплечья");
+    expect(names("db_shrug")).not.toBe("Грудь + трицепс");
+  });
+  it("у каждой мышцы на схеме есть хотя бы 2 упражнения", () => {
+    for (const m of MAP_MUSCLES) expect(EXERCISES.filter((e) => e.primary.includes(m)).length, m).toBeGreaterThanOrEqual(2);
   });
 });

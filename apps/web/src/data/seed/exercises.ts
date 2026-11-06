@@ -476,6 +476,20 @@ export const EXERCISES: Exercise[] = [
     mistakes: ["Удар коленом об пол", "Толчок задней ногой вместо передней", "Наклон корпуса вперёд"],
   }),
   ex({
+    id: "hip_adduction_machine", name: "Сведение ног в тренажёре", nameEn: "Hip adduction machine", category: "strength", pattern: "squat",
+    primary: ["adductors"], secondary: [], equipment: ["machine"], locations: G, mechanics: "isolation",
+    difficulty: 1, tracking: "weight_reps", loadStep: 5,
+    technique: "Сядь, прижми спину к спинке, валики с внутренней стороны коленей. Своди ноги плавно, пауза, медленно разводи до комфортной ширины.",
+    mistakes: ["Рывки и бросание веса", "Слишком широкое разведение через дискомфорт"],
+  }),
+  ex({
+    id: "sumo_goblet_squat", name: "Сумо-присед с гантелью", nameEn: "Sumo goblet squat", category: "strength", pattern: "squat",
+    primary: ["adductors", "glutes", "quads"], secondary: ["abs"], equipment: ["dumbbell"], locations: GH,
+    difficulty: 2, tracking: "weight_reps", loadStep: 2,
+    technique: "Широкая стойка, носки развёрнуты наружу, гантель вертикально в руках. Садись вниз, колени идут по линии носков, спина ровная.",
+    mistakes: ["Колени заваливаются внутрь", "Наклон корпуса вперёд"],
+  }),
+  ex({
     id: "leg_curl", name: "Сгибание ног в тренажёре", nameEn: "Leg curl", category: "strength", pattern: "knee_flexion",
     primary: ["hamstrings"], secondary: ["calves"], equipment: ["machine"], locations: G, mechanics: "isolation",
     difficulty: 1, tracking: "weight_reps", loadStep: 5,
@@ -623,6 +637,21 @@ export const EXERCISES: Exercise[] = [
     difficulty: 5, tracking: "reps", review: "check",
     technique: "Взрывное подтягивание к поясу с переходом корпуса над перекладиной и дожимом. Обычно осваивают после 10+ чистых подтягиваний и 15+ отжиманий на брусьях, лучше под контролем тренера.",
     mistakes: ["Рывок «через одну руку»", "Попытки без базовой силы", "Хват без контроля запястий"],
+  }),
+
+  ex({
+    id: "db_shrug", name: "Шраги с гантелями", nameEn: "Dumbbell shrug", category: "strength", pattern: "carry",
+    primary: ["traps"], secondary: ["forearms"], equipment: ["dumbbell"], locations: GH, mechanics: "isolation",
+    difficulty: 1, tracking: "weight_reps", loadStep: 2,
+    technique: "Гантели в опущенных руках, корпус прямой. Поднимай плечи вертикально вверх к ушам, пауза 1 секунда, медленно опускай. Руки прямые, работают только трапеции.",
+    mistakes: ["Вращение плечами по кругу", "Сгибание рук", "Слишком большой вес и короткая амплитуда"],
+  }),
+  ex({
+    id: "barbell_shrug", name: "Шраги со штангой", nameEn: "Barbell shrug", category: "strength", pattern: "carry",
+    primary: ["traps"], secondary: ["forearms"], equipment: ["barbell"], locations: G, mechanics: "isolation",
+    difficulty: 1, tracking: "weight_reps", loadStep: 5,
+    technique: "Гриф перед бёдрами хватом на ширине плеч. Поднимай плечи прямо вверх, пауза наверху, опускай подконтрольно.",
+    mistakes: ["Помощь ногами и корпусом", "Вращение плечами", "Опускание головы вперёд"],
   }),
 
   // ── Предплечья ──────────────────────────────────────
@@ -811,6 +840,10 @@ const LOAD: Record<string, string> = {
   farmer_carry: "Хват (сгибатели пальцев), трапеции и косые мышцы.",
   wrist_curl: "Сгибатели кисти — внутренняя сторона предплечья.",
   reverse_wrist_curl: "Разгибатели кисти — внешняя сторона предплечья.",
+  db_shrug: "Верхняя часть трапеций — поднимает плечи.",
+  hip_adduction_machine: "Приводящие мышцы — внутренняя поверхность бедра.",
+  sumo_goblet_squat: "Широкая стойка сильнее включает приводящие и ягодицы, чем обычный присед.",
+  barbell_shrug: "Верхняя часть трапеций; хват нагружает предплечья.",
   dead_hang: "Хват и предплечья; плечевой пояс в растяжении.",
 };
 for (const e of EXERCISES) if (LOAD[e.id]) e.load = LOAD[e.id];

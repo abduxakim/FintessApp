@@ -3,7 +3,6 @@ import { activeSession, loadLocal, useStore } from "../data/store";
 import { startSync } from "../data/sync";
 import { NavProvider, useNav, type Tab } from "./nav";
 import { ErrorBoundary } from "./ErrorBoundary";
-import { MotionGallery } from "../ui/motion/Gallery";
 import { Icon } from "../ui/icons";
 import { ToastHost } from "../ui/kit";
 import { Onboarding } from "../features/profile/Onboarding";
@@ -120,7 +119,6 @@ function Shell() {
 }
 
 export function App() {
-  if (typeof location !== "undefined" && location.hash === "#motion-gallery") return <MotionGallery />;
   useEffect(() => {
     void loadLocal().then(() => startSync());
     try {

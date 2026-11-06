@@ -2,13 +2,14 @@ import React, { useState } from "react";
 import { EXERCISES, EXERCISE_BY_ID, programById } from "../../data/catalog";
 import { activeSession, useStore } from "../../data/store";
 import { useNav } from "../../app/nav";
-import { copyProgram, enroll, prepareProgramDay, setNextDay } from "../../app/actions";
+import { copyProgram, enroll, prepareProgramDay, removeFromProgramDay, resetProgramTweaks, setNextDay } from "../../app/actions";
 import { GOALS, LEVELS, LOCATIONS } from "../../data/seed/labels";
 import { Confirm, MedicalNote, Note, TopBar, toast } from "../../ui/kit";
 import { Icon } from "../../ui/icons";
 import { alternatives, isAvailable } from "../../domain/availability";
 import { fmtClock } from "../../domain/format";
 import { pickVariant, programCycle } from "../../domain/session";
+import { effectiveDay, isExtra } from "../../domain/tweaks";
 import type { ItemBlock, ProgramItem } from "../../data/types";
 
 const BLOCK_TITLE: Record<ItemBlock, string> = { warmup: "Разминка", main: "Основная часть", cooldown: "Заминка" };
@@ -28,7 +29,9 @@ export function ProgramDetail({ id }: { id: string }) {
   const [dayIdx, setDayIdx] = useState(isMine ? en!.nextDayIndex % (program?.days.length || 1) : 0);
   const [confirmSwitch, setConfirmSwitch] = useState(false);
   if (!program) return <TopBar title="Программа не найдена" onBack={nav.back} />;
-  const day = program.days[dayIdx] ?? program.days[0];
+  const tweaks = state.meta.programTweaks?.[program.id];
+  const day = effectiveDay(program.days[dayIdx] ?? program.days[0], tweaks);
+  const hasTweaks = !!tweaks && (Object.values(tweaks.extras ?? {}).some((l) => l.length) || Object.keys(tweaks.overrides ?? {}).length > 0);
   const profile = state.meta.profile;
   const location = profile.locations[0] ?? "gym";
   const active = activeSession(state);
@@ -100,6 +103,24 @@ export function ProgramDetail({ id }: { id: string }) {
                   if (!ex) return null;
                   const unavailable = !isAvailable(ex, profile, location);
                   const alt = unavailable ? alternatives(ex, EXERCISES, profile, location)[0] : null;
+                  const extra = isExtra(tweaks, day.id, it.id);
+                  const changed = !!tweaks?.overrides?.[it.id];
+                  if (extra)
+                    return (
+                      <div key={it.id} className="list-item">
+                        <button className="grow" style={{ background: "none", border: 0, padding: 0, textAlign: "left" }} onClick={() => nav.push({ name: "exercise", id: ex.id })}>
+                          <div className="title">{ex.name}</div>
+                          <div className="sub num">
+                            {itemTarget(it)}
+                            {it.restSec > 0 && ` · отдых ${fmtClock(it.restSec)}`}
+                          </div>
+                          <div className="xs" style={{ color: "var(--accent)" }}>добавлено тобой</div>
+                        </button>
+                        <button className="icon-btn" aria-label={`Убрать из программы: ${ex.name}`} onClick={() => removeFromProgramDay(program.id, day.id, it.id).then(() => toast("Убрано из программы"))}>
+                          <Icon name="trash" size={18} />
+                        </button>
+                      </div>
+                    );
                   return (
                     <button key={it.id} className="list-item" onClick={() => nav.push({ name: "exercise", id: ex.id })}>
                       <div className="grow">
@@ -109,6 +130,7 @@ export function ProgramDetail({ id }: { id: string }) {
                           {it.restSec > 0 && ` · отдых ${fmtClock(it.restSec)}`}
                         </div>
                         {it.note && <div className="sub">{it.note}</div>}
+                        {changed && <div className="xs" style={{ color: "var(--accent)" }}>подходы/повторы изменены тобой</div>}
                         {it.variants && it.variants.length > 0 && (
                           <div className="sub">Чередуется: {[it.exerciseId, ...it.variants].map((v) => EXERCISE_BY_ID[v]?.name).join(" → ")}</div>
                         )}
@@ -134,6 +156,12 @@ export function ProgramDetail({ id }: { id: string }) {
 
         {hasShoulderZone && program.kind === "program" && day.items.some((i) => i.exerciseId === "band_external_rotation") && (
           <Note>В разминке есть активация лопаток и ротаторной манжеты — она учитывает твою проблемную зону.</Note>
+        )}
+
+        {hasTweaks && (
+          <button className="btn ghost small" style={{ alignSelf: "flex-start" }} onClick={() => resetProgramTweaks(program.id).then(() => toast("Правки сброшены"))}>
+            Сбросить мои правки программы
+          </button>
         )}
 
         <div className="stack">

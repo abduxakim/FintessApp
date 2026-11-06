@@ -9,6 +9,8 @@ export interface Draft {
   source: "program" | "custom" | "plan";
   rationale?: string;
   planSource?: "claude" | "local";
+  /** Сохранить изменения подходов/повторов и добавленные упражнения в программе. */
+  remember?: boolean;
 }
 
 let draft: Draft | null = null;
@@ -37,4 +39,8 @@ export function useDraft(): Draft | null {
     () => draft,
     () => draft,
   );
+}
+
+export function setDraftRemember(v: boolean) {
+  if (draft) setDraft({ ...draft, remember: v });
 }

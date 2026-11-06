@@ -166,9 +166,20 @@ try {
   await page.getByRole("button", { name: "К тренировке" }).click();
   await page.getByText("План тренировки").waitFor();
   await page.getByRole("button", { name: "Добавить упражнение" }).click();
+  // Длинный список в окне выбора прокручивается.
+  const scrolled = await page.locator(".sheet").evaluate((el) => {
+    el.scrollTop = 400;
+    return el.scrollTop > 0 && el.scrollHeight > el.clientHeight;
+  });
+  check("окно выбора упражнения прокручивается", scrolled);
   await page.fill("#picker-search", "икр");
   await page.getByRole("button", { name: /Подъёмы на носки стоя/ }).click();
   check("своё упражнение добавлено в план", await page.getByText("Подъёмы на носки стоя").isVisible());
+  // Изменить подходы жима и запомнить для следующих тренировок.
+  await page.getByRole("button", { name: "Изменить подходы и повторы: Жим штанги лёжа" }).click();
+  await page.getByRole("button", { name: "Подходы: больше" }).click();
+  await page.locator(".sheet").getByRole("button", { name: "Готово" }).click();
+  await page.check("#draft-remember");
   await shot(page, "03b-preview");
   await page.getByRole("button", { name: "Начать тренировку" }).click();
   await page.locator(".workout").waitFor();
@@ -217,6 +228,8 @@ try {
   // ── Повтор A: подсказка «прошлый раз» и рекорд ──
   await page.getByRole("button", { name: "План" }).click();
   await page.getByRole("tab", { name: /^A/ }).click();
+  check("изменения запомнены в программе", (await page.getByText("подходы/повторы изменены тобой").count()) === 1 && (await page.getByText("добавлено тобой").count()) === 1);
+  check("жим теперь 5 подходов", (await page.getByRole("button", { name: /Жим штанги лёжа/ }).first().textContent()).includes("5 × 6–8"));
   await page.getByRole("button", { name: "К тренировке «A»" }).click();
   await page.getByRole("button", { name: "Начать тренировку" }).click();
   const bench2 = page.locator("article", { has: page.getByRole("button", { name: "Жим штанги лёжа" }) });
@@ -254,7 +267,6 @@ try {
   // ── Карточка упражнения: «Как делать» и «Мышцы» ──
   await page.fill("#lib-search", "жим штанги лёжа");
   await page.getByRole("button", { name: /Жим штанги лёжа/ }).first().click();
-  check("анимация техники", await page.getByRole("img", { name: "Схема движения: Жим штанги лёжа" }).isVisible());
   const yt = await page.getByRole("link", { name: /YouTube/ }).getAttribute("href");
   check("ссылка на видео", yt.startsWith("https://www.youtube.com/results?search_query="), yt);
   await shot(page, "11-how");
@@ -269,6 +281,10 @@ try {
   await page.locator(".card").getByRole("button", { name: "Икры", exact: true }).click();
   const calves = await page.locator(".list-item .title").allTextContents();
   check("фильтр по мышце «Икры»", calves.length >= 4 && calves.every((t) => /нос|Икры/i.test(t)), calves.join(", "));
+  await page.locator(".card").getByRole("button", { name: "Трапеции", exact: true }).click();
+  const multi = await page.locator(".list-item .title").allTextContents();
+  check("несколько мышц сразу (икры + трапеции)", multi.length > calves.length && multi.some((t) => /Шраги/.test(t)), String(multi.length));
+  check("кнопка «Показать N упр.»", await page.getByRole("button", { name: `Показать ${multi.length} упр.` }).isVisible());
   await shot(page, "08-muscles");
 
   // ── Своя программа: спина и ноги в один день ──
@@ -313,9 +329,10 @@ try {
   await page.getByText("Тренажёр для жима ногами").waitFor();
   check("фото: только упражнения из каталога + новое с пометкой", (await page.locator("label.list-item").count()) === 3 && (await page.getByText("новое — проверь").isVisible()));
   await shot(page, "12-photo");
-  await page.getByRole("button", { name: "Добавить в тренировку" }).click();
-  await page.getByText("План тренировки").waitFor();
-  check("фото: упражнения добавлены в план", (await page.getByText("Жим ногами одной ногой").count()) === 1 && (await page.getByText("Жим ногами", { exact: true }).count()) === 1);
+  check("фото: день программы подобран", (await page.getByRole("button", { name: /День для «Жим ногами»: Спина \+ ноги/ }).count()) === 1);
+  await page.getByRole("button", { name: /Добавить в программу/ }).click();
+  await page.getByText("добавлено тобой").first().waitFor();
+  check("фото: упражнения добавлены в программу", (await page.getByText("добавлено тобой").count()) === 3 && (await page.getByText("Жим ногами одной ногой").count()) === 1);
   await shot(page, "10-ask");
 
   // ── Быстрые блоки на «Сегодня» тоже открывают план ──

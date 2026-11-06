@@ -258,11 +258,19 @@ export interface GoalChange {
   at: Millis;
 }
 
+/** Личные правки программы поверх шаблона: добавленные упражнения по дням и изменённые подходы/повторы. */
+export interface ProgramTweaks {
+  extras?: Record<ID, ProgramItem[]>;
+  overrides?: Record<ID, Partial<Pick<ProgramItem, "sets" | "repsMin" | "repsMax" | "restSec" | "durationSec">>>;
+}
+
 export interface UserMeta extends SyncFields {
   schemaVersion: number;
   onboarded: boolean;
   /** Свои упражнения (например, распознанные по фото тренажёра). */
   customExercises?: Exercise[];
+  /** Правки программ: programId → правки. */
+  programTweaks?: Record<ID, ProgramTweaks>;
   profile: Profile;
   goalHistory: GoalChange[];
   enrollment: Enrollment | null;

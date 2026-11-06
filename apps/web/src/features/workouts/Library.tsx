@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import { EXERCISES } from "../../data/catalog";
 import { CATEGORIES, DIFFICULTY, EQUIPMENT, LOCATIONS, MUSCLES } from "../../data/seed/labels";
 import type { Category, EquipmentId, Exercise, Location, MuscleId } from "../../data/types";
@@ -14,7 +14,8 @@ const GROUPS = ["Грудь", "Спина", "Плечи", "Руки", "Кор", 
 
 interface Filters {
   group: string | null;
-  muscle: MuscleId | null;
+  /** Несколько мышц: показываются упражнения хотя бы на одну из них. */
+  muscles: MuscleId[];
   withSecondary: boolean;
   location: Location | null;
   category: Category | null;
@@ -27,7 +28,7 @@ export function filterExercises(list: Exercise[], q: string, f: Filters, availab
   return list.filter((e) => {
     if (nq && !norm(e.name).includes(nq) && !norm(e.nameEn).includes(nq) && !e.primary.some((m) => norm(MUSCLES[m].name).includes(nq))) return false;
     if (f.group && !e.primary.some((m) => MUSCLES[m].group === f.group)) return false;
-    if (f.muscle && !e.primary.includes(f.muscle) && !(f.withSecondary && e.secondary.includes(f.muscle))) return false;
+    if (f.muscles.length && !f.muscles.some((m) => e.primary.includes(m) || (f.withSecondary && e.secondary.includes(m)))) return false;
     if (f.location && !e.locations.includes(f.location)) return false;
     if (f.category && e.category !== f.category) return false;
     if (f.equipment && !e.equipment.includes(f.equipment)) return false;
@@ -40,8 +41,10 @@ export function Library() {
   const nav = useNav();
   const profile = useStore((s) => s.meta.profile);
   const [q, setQ] = useState("");
-  const [f, setF] = useState<Filters>({ group: null, muscle: null, withSecondary: false, location: null, category: null, equipment: null, mine: false });
+  const [f, setF] = useState<Filters>({ group: null, muscles: [], withSecondary: false, location: null, category: null, equipment: null, mine: false });
   const [showMap, setShowMap] = useState(false);
+  const listRef = useRef<HTMLDivElement>(null);
+  const toggleMuscle = (m: MuscleId) => setF((cur) => ({ ...cur, group: null, muscles: cur.muscles.includes(m) ? cur.muscles.filter((x) => x !== m) : [...cur.muscles, m] }));
   const [more, setMore] = useState(false);
   const loc = profile.locations[0] ?? "gym";
   const list = useMemo(() => filterExercises(EXERCISES, q, f, (e) => isAvailable(e, profile, f.location ?? loc)), [q, f, profile, loc]);
@@ -59,21 +62,21 @@ export function Library() {
           <Chip on={showMap} onClick={() => setShowMap(!showMap)}>
             Мышцы на схеме
           </Chip>
-          <Chip on={!f.group && !f.muscle} onClick={() => setF({ ...f, group: null, muscle: null })}>
+          <Chip on={!f.group && !f.muscles.length} onClick={() => setF({ ...f, group: null, muscles: [] })}>
             Все
           </Chip>
           {GROUPS.map((g) => (
-            <Chip key={g} on={f.group === g} onClick={() => setF({ ...f, muscle: null, group: f.group === g ? null : g })}>
+            <Chip key={g} on={f.group === g} onClick={() => setF({ ...f, muscles: [], group: f.group === g ? null : g })}>
               {g}
             </Chip>
           ))}
         </div>
         {showMap && (
           <div className="card tight">
-            <BodyMap selected={f.muscle} onSelect={(m) => setF({ ...f, group: null, muscle: f.muscle === m ? null : m })} />
+            <BodyMap primary={f.muscles} onSelect={toggleMuscle} />
             <div className="chips">
               {MAP_MUSCLES.map((m) => (
-                <Chip key={m} on={f.muscle === m} onClick={() => setF({ ...f, group: null, muscle: f.muscle === m ? null : m })}>
+                <Chip key={m} on={f.muscles.includes(m)} onClick={() => toggleMuscle(m)}>
                   {MUSCLES[m].name}
                 </Chip>
               ))}
@@ -84,13 +87,18 @@ export function Library() {
             </label>
           </div>
         )}
-        {f.muscle && (
-          <p className="small">
-            Мышца: <b>{MUSCLES[f.muscle].name}</b>{" "}
-            <button className="btn small ghost" onClick={() => setF({ ...f, muscle: null })}>
+        {f.muscles.length > 0 && (
+          <div className="row wrap small">
+            <span>
+              {f.muscles.length > 1 ? "Мышцы" : "Мышца"}: <b>{f.muscles.map((m) => MUSCLES[m].name).join(", ")}</b>
+            </span>
+            <button className="btn small primary" onClick={() => listRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}>
+              Показать {list.length} упр.
+            </button>
+            <button className="btn small ghost" onClick={() => setF({ ...f, muscles: [] })}>
               Сбросить
             </button>
-          </p>
+          </div>
         )}
         <div className="row">
           <button className="btn small" onClick={() => nav.push({ name: "photo" })}>
@@ -103,7 +111,7 @@ export function Library() {
             {list.length} упр.
           </span>
         </div>
-        <div className="list">
+        <div className="list" ref={listRef} style={{ scrollMarginTop: 72 }}>
           {list.map((e) => (
             <button key={e.id} className="list-item" onClick={() => nav.push({ name: "exercise", id: e.id })}>
               <div className="grow">

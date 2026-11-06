@@ -155,3 +155,23 @@ export function ToastHost() {
     </div>
   ) : null;
 }
+
+export function Stepper({ label, value, min, max, step = 1, onChange, fmt }: { label: string; value: number; min: number; max: number; step?: number; onChange: (v: number) => void; fmt?: (v: number) => string }) {
+  return (
+    <div className="row" style={{ justifyContent: "space-between" }}>
+      <span className="small dim">{label}</span>
+      <div className="stepper">
+        <button aria-label={`${label}: меньше`} onClick={() => onChange(Math.max(min, value - step))}>
+          <Icon name="minus" size={16} />
+        </button>
+        <span className="v" style={{ minWidth: "4ch" }}>
+          {fmt ? fmt(value) : value}
+        </span>
+        <button aria-label={`${label}: больше`} onClick={() => onChange(Math.min(max, value + step))}>
+          <Icon name="plus" size={16} />
+        </button>
+      </div>
+    </div>
+  );
+}
+

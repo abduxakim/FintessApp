@@ -5,7 +5,8 @@ import type { NextAction, SessionReview } from "../../domain/review";
 import type { SessionPR } from "../../domain/history";
 import { fmtDuration, fmtTonnage, plural } from "../../domain/format";
 import { sessionDoneSets, sessionVolume } from "../../domain/strength";
-import { applyNextAction } from "../../app/actions";
+import { applyNextAction, rememberSessionChanges } from "../../app/actions";
+import { useStore } from "../../data/store";
 import { Icon } from "../../ui/icons";
 import { fmtRecord, RECORD_LABEL } from "../progress/shared";
 
@@ -72,11 +73,26 @@ export function ReviewBlock({ review }: { review: SessionReview }) {
 export function SummaryView({ session, prs, review, dayName, nextDayName, onDone }: { session: WorkoutSession; prs: SessionPR[]; review: SessionReview; dayName: string | null; nextDayName: string | null; onDone: () => void }) {
   const [choice, setChoice] = useState<NextAction>(review.recommended);
   const [busy, setBusy] = useState(false);
+  // Что можно перенести в программу: подходов сделано больше плана или упражнение добавлено по ходу.
+  const enrolled = useStore((st) => st.meta.enrollment?.programId === session.programId && session.programId != null);
+  const changes = enrolled
+    ? session.exercises
+        .filter((e) => e.block === "main" && !e.circuit && !e.carried)
+        .map((e) => {
+          const done = e.sets.filter((x) => x.done).length;
+          if (e.plannedItemId && done > e.targetSets) return { id: e.id, exerciseId: e.exerciseId, text: `${done} подходов вместо ${e.targetSets}` };
+          if (!e.plannedItemId && done > 0) return { id: e.id, exerciseId: e.exerciseId, text: `добавлено по ходу — ${done} подх.` };
+          return null;
+        })
+        .filter((x): x is { id: string; exerciseId: string; text: string } => !!x)
+    : [];
+  const [keep, setKeep] = useState<Set<string>>(new Set());
   const dur = (session.endedAt ?? Date.now()) - session.startedAt;
   const sets = sessionDoneSets(session);
   const done = async () => {
     setBusy(true);
     if (review.fromProgram && review.actions.length > 1) await applyNextAction(session, choice, review.carry);
+    if (keep.size) await rememberSessionChanges(session, { useDoneSets: true, only: [...keep] });
     onDone();
   };
   return (
@@ -119,6 +135,37 @@ export function SummaryView({ session, prs, review, dayName, nextDayName, onDone
               </button>
             ))}
           </div>
+        </section>
+      )}
+
+      {changes.length > 0 && (
+        <section className="section">
+          <div className="section-head">
+            <h2>Запомнить для следующих раз?</h2>
+          </div>
+          <div className="list">
+            {changes.map((c) => (
+              <label key={c.id} className="list-item">
+                <input
+                  type="checkbox"
+                  checked={keep.has(c.id)}
+                  onChange={() =>
+                    setKeep((k) => {
+                      const n = new Set(k);
+                      if (n.has(c.id)) n.delete(c.id);
+                      else n.add(c.id);
+                      return n;
+                    })
+                  }
+                />
+                <div className="grow">
+                  <div className="title">{EXERCISE_BY_ID[c.exerciseId]?.name}</div>
+                  <div className="sub">{c.text}</div>
+                </div>
+              </label>
+            ))}
+          </div>
+          <p className="xs muted">Отмеченное сохранится в этом дне программы: следующая такая тренировка будет с этими подходами и упражнениями.</p>
         </section>
       )}
 
