@@ -444,3 +444,22 @@ describe("правки программы", () => {
     for (const m of MAP_MUSCLES) expect(EXERCISES.filter((e) => e.primary.includes(m)).length, m).toBeGreaterThanOrEqual(2);
   });
 });
+
+import { emphasisOf, emphasisLine } from "../src/domain/emphasis";
+
+describe("упор тренировки", () => {
+  const split = PROGRAMS.find((x) => x.id === "split_back_chest_shoulders")!;
+  it("день спины — упор на спину, день груди — на грудь", () => {
+    const back = emphasisOf(split.days[0].items, EXERCISE_BY_ID);
+    const chest = emphasisOf(split.days[1].items, EXERCISE_BY_ID);
+    expect(back.groups[0].group).toBe("Спина");
+    expect(back.main).toContain("lats");
+    expect(chest.groups[0].group).toBe("Грудь");
+    expect(chest.main).toContain("chest");
+    expect(emphasisLine(chest)).toMatch(/^грудь/);
+  });
+  it("разминка и заминка не считаются", () => {
+    const e = emphasisOf([{ exerciseId: "band_pull_apart", sets: 2, block: "warmup" }, { exerciseId: "plank", sets: 3, block: "main" }], EXERCISE_BY_ID);
+    expect(e.groups.map((g) => g.group)).toEqual(["Кор"]);
+  });
+});

@@ -244,6 +244,16 @@ try {
 
   // ── Повтор A: подсказка «прошлый раз» и рекорд ──
   await page.getByRole("button", { name: "План" }).click();
+  // Выбранный день сохраняется после захода в упражнение и «Назад».
+  await page.getByRole("tab", { name: /^B/ }).click();
+  check("упор дня показан", await page.getByRole("region", { name: "Упор дня B" }).isVisible());
+  await page.getByRole("region", { name: "Упор дня B" }).scrollIntoViewIfNeeded();
+  await shot(page, "13-emphasis");
+  await page.getByRole("button", { name: /Тяга верхнего блока/ }).first().click();
+  await page.getByText("Типичные ошибки").waitFor();
+  await page.goBack();
+  await page.waitForTimeout(500);
+  check("после «Назад» остался день B", (await page.getByRole("tab", { name: /^B/ }).getAttribute("aria-selected")) === "true");
   await page.getByRole("tab", { name: /^A/ }).click();
   check("изменения запомнены в программе", (await page.getByText("подходы/повторы изменены тобой").count()) === 1 && (await page.getByText("добавлено тобой").count()) === 1);
   check("жим теперь 5 подходов", (await page.getByRole("button", { name: /Жим штанги лёжа/ }).first().textContent()).includes("5 × 6–8"));

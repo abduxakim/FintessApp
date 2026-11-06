@@ -10,6 +10,8 @@ import { alternatives, isAvailable } from "../../domain/availability";
 import { exerciseForGroup, groupLoad, underloaded } from "../../domain/balance";
 import { fmtClock } from "../../domain/format";
 import { MUSCLES } from "../../data/seed/labels";
+import { emphasisOf } from "../../domain/emphasis";
+import { EmphasisCard } from "../../ui/EmphasisCard";
 import { Note, Segmented, Sheet, Stepper, TopBar, toast } from "../../ui/kit";
 import { Icon } from "../../ui/icons";
 import { ExercisePickerSheet } from "../profile/forms";
@@ -95,6 +97,7 @@ export function Preview() {
             {draft.rationale}
           </Note>
         )}
+        <EmphasisCard e={emphasisOf(s.exercises.map((e) => ({ exerciseId: e.exerciseId, sets: e.targetSets, block: e.block })), EXERCISE_BY_ID)} />
         {draft.usesCarry && <p className="small" style={{ color: "var(--accent)" }}>Добавлено пропущенное с прошлой тренировки — отмечено в списке.</p>}
 
         {missing.length > 0 && (

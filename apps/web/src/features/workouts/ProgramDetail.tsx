@@ -1,7 +1,9 @@
 import React, { useState } from "react";
 import { EXERCISES, EXERCISE_BY_ID, programById } from "../../data/catalog";
 import { activeSession, useStore } from "../../data/store";
-import { useNav } from "../../app/nav";
+import { useNav, useScreenState } from "../../app/nav";
+import { emphasisOf } from "../../domain/emphasis";
+import { EmphasisCard } from "../../ui/EmphasisCard";
 import { copyProgram, enroll, prepareProgramDay, removeFromProgramDay, resetProgramTweaks, setNextDay } from "../../app/actions";
 import { GOALS, LEVELS, LOCATIONS } from "../../data/seed/labels";
 import { Confirm, MedicalNote, Note, TopBar, toast } from "../../ui/kit";
@@ -26,7 +28,8 @@ export function ProgramDetail({ id }: { id: string }) {
   const program = programById(state, id);
   const en = state.meta.enrollment;
   const isMine = en?.programId === id;
-  const [dayIdx, setDayIdx] = useState(isMine ? en!.nextDayIndex % (program?.days.length || 1) : 0);
+  // Выбранный день запоминается: после карточки упражнения «Назад» вернёт на тот же день.
+  const [dayIdx, setDayIdx] = useScreenState("day", isMine ? en!.nextDayIndex % (program?.days.length || 1) : 0);
   const [confirmSwitch, setConfirmSwitch] = useState(false);
   if (!program) return <TopBar title="Программа не найдена" onBack={nav.back} />;
   const tweaks = state.meta.programTweaks?.[program.id];
@@ -88,6 +91,7 @@ export function ProgramDetail({ id }: { id: string }) {
           </div>
         )}
         <p className="small muted">{day.focus}</p>
+        {program.kind === "program" && <EmphasisCard e={emphasisOf(day.items.map((it) => ({ ...it, exerciseId: pickVariant(it, cycle) })), EXERCISE_BY_ID)} title={`Упор дня ${day.name}`} />}
 
         {blocks.map((b) => {
           const items = day.items.filter((i) => i.block === b);

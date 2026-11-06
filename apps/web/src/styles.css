@@ -1188,3 +1188,38 @@ button.step:active {
   gap: 2px;
   padding-block: 8px;
 }
+.emphasis {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+.emphasis-map {
+  width: 40%;
+  max-width: 170px;
+  flex: none;
+}
+.emphasis-map .body-map {
+  gap: 2px;
+}
+.emphasis-row {
+  display: grid;
+  grid-template-columns: 4.5em minmax(0, 1fr) 2.2em;
+  gap: 8px;
+  align-items: center;
+}
+.emphasis-bar {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+.emphasis-bar span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: 4px;
+}
+.emphasis-row .num {
+  text-align: right;
+  color: var(--fg-2);
+}

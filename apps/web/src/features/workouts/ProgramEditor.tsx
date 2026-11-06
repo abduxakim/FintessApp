@@ -2,7 +2,9 @@ import React, { useState } from "react";
 import { EXERCISE_BY_ID } from "../../data/catalog";
 import { getState, saveProgram, useStore } from "../../data/store";
 import type { ItemBlock, Program, ProgramDay, ProgramItem } from "../../data/types";
-import { useNav } from "../../app/nav";
+import { useNav, useScreenState } from "../../app/nav";
+import { emphasisOf } from "../../domain/emphasis";
+import { EmphasisCard } from "../../ui/EmphasisCard";
 import { deleteProgram, enroll } from "../../app/actions";
 import { moveItem } from "../../domain/session";
 import { uuidv7 } from "../../domain/ids";
@@ -67,7 +69,7 @@ export function ProgramEditor({ id }: { id: string }) {
   const nav = useNav();
   const program = useStore((s) => s.programs[id]);
   const enrolled = useStore((s) => s.meta.enrollment?.programId === id);
-  const [dayIdx, setDayIdx] = useState(0);
+  const [dayIdx, setDayIdx] = useScreenState("day", 0);
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<ProgramItem | null>(null);
   const [confirm, setConfirm] = useState<"day" | "program" | null>(null);
@@ -113,6 +115,7 @@ export function ProgramEditor({ id }: { id: string }) {
           </div>
         </div>
 
+        <EmphasisCard e={emphasisOf(day.items, EXERCISE_BY_ID)} title={`Упор дня «${day.name}»`} />
         <div className="list">
           {day.items.map((it, i) => {
             const ex = EXERCISE_BY_ID[it.exerciseId];

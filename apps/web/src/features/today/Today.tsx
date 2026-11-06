@@ -13,6 +13,7 @@ import { Icon } from "../../ui/icons";
 import { ZONES } from "../../data/seed/labels";
 import { pickVariant, programCycle } from "../../domain/session";
 import { effectiveDay } from "../../domain/tweaks";
+import { emphasisLine, emphasisOf } from "../../domain/emphasis";
 import { updateMeta } from "../../data/store";
 
 const WEEKDAYS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
@@ -86,6 +87,11 @@ export function Today() {
               </span>
             </div>
           </div>
+          {day.items.length > 0 && (
+            <p className="small">
+              Упор: <b>{emphasisLine(emphasisOf(day.items.map((it) => ({ ...it, exerciseId: pickVariant(it, cycle) })), EXERCISE_BY_ID))}</b>
+            </p>
+          )}
           {carry.length > 0 && (
             <p className="small" style={{ color: "var(--accent)" }}>
               + добить с прошлой: {carry.map((c) => EXERCISE_BY_ID[c.exerciseId]?.name).join(", ")}
