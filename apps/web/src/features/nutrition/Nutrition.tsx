@@ -153,6 +153,7 @@ export function FoodAdd({ mode }: { mode: "photo" | "text" | "saved" | "manual" 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [manual, setManual] = useState({ name: "", grams: "100", kcal: "", p: "", f: "", c: "" });
+  const [removeId, setRemoveId] = useState<string | null>(null);
 
   const finish = async (meal: Meal) => {
     await saveMeal(meal);
@@ -271,6 +272,9 @@ export function FoodAdd({ mode }: { mode: "photo" | "text" | "saved" | "manual" 
                     >
                       Добавить
                     </button>
+                    <button className="icon-btn" aria-label={`Удалить блюдо: ${d.name}`} onClick={() => setRemoveId(d.id)}>
+                      <Icon name="trash" size={18} />
+                    </button>
                   </div>
                 );
               })}
@@ -299,6 +303,16 @@ export function FoodAdd({ mode }: { mode: "photo" | "text" | "saved" | "manual" 
         )}
         {error && <Note kind="warn">{error}</Note>}
       </div>
+      {removeId && (
+        <Confirm
+          title={`Удалить «${saved.find((d) => d.id === removeId)?.name ?? "блюдо"}»?`}
+          text="Блюдо пропадёт из сохранённых. Уже записанные приёмы пищи останутся."
+          confirmLabel="Удалить"
+          danger
+          onConfirm={() => updateMeta((m) => ({ ...m, savedDishes: (m.savedDishes ?? []).filter((x) => x.id !== removeId) })).then(() => toast("Блюдо удалено"))}
+          onClose={() => setRemoveId(null)}
+        />
+      )}
     </>
   );
 }

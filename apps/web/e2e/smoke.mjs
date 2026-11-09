@@ -454,6 +454,15 @@ try {
   await page.goBack();
   await page.waitForTimeout(400);
   check("сохранённое блюдо добавлено вторым приёмом", (await page.getByRole("button", { name: /Плов и салат/ }).count()) === 2);
+  // Сохранённое блюдо можно удалить; записанные приёмы пищи остаются.
+  await page.getByRole("button", { name: "Сохранённые" }).click();
+  await page.getByRole("button", { name: "Удалить блюдо: Плов и салат" }).click();
+  await page.locator(".sheet").getByRole("button", { name: "Удалить" }).click();
+  await page.getByText("Сохранённых блюд пока нет").waitFor();
+  check("сохранённое блюдо удаляется", true);
+  await page.goBack();
+  await page.waitForTimeout(400);
+  check("после удаления блюда приёмы пищи на месте", (await page.getByRole("button", { name: /Плов и салат/ }).count()) === 2);
   // Заполняем профиль — появляется норма.
   await page.getByRole("button", { name: "Профиль" }).click();
   await page.getByRole("button", { name: /Тело и опыт/ }).click();
