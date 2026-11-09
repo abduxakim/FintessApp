@@ -1,8 +1,8 @@
 import React, { useMemo } from "react";
 import { EXERCISE_BY_ID } from "../../data/catalog";
-import { doneSessions, useStore } from "../../data/store";
+import { liftsById, useStore } from "../../data/store";
 import { useNav } from "../../app/nav";
-import { liftSummaries, type LiftSummary } from "../../domain/lifts";
+import type { LiftSummary } from "../../domain/lifts";
 import { fmtKg, fmtShort } from "../../domain/format";
 import { TopBar } from "../../ui/kit";
 import { Icon } from "../../ui/icons";
@@ -28,8 +28,8 @@ function Delta({ l }: { l: LiftSummary; tracking?: string }) {
 /** Список рабочих весов: последний результат, изменение, совет на следующий раз. */
 export function LiftList({ limit }: { limit?: number }) {
   const nav = useNav();
-  const sessions = useStore(doneSessions);
-  const lifts = useMemo(() => liftSummaries(sessions, EXERCISE_BY_ID).filter((l) => EXERCISE_BY_ID[l.exerciseId]?.category !== "prehab"), [sessions]);
+  const all = useStore(liftsById);
+  const lifts = useMemo(() => [...all.values()].filter((l) => EXERCISE_BY_ID[l.exerciseId]?.category !== "prehab"), [all]);
   if (!lifts.length) return <p className="small muted">Здесь появятся рабочие веса после первой тренировки.</p>;
   return (
     <div className="list">

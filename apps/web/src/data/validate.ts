@@ -1,6 +1,7 @@
 // Проверка формы данных, приходящих извне: из облака и из файла импорта.
 // Не доверяем структуре — некорректные записи отбрасываются, а не ломают приложение.
-import type { DayLog, ExportFile, Program, UserMeta, WorkoutSession } from "./types";
+import type { DayLog, ExportFile, FoodItem, Program, UserMeta, WorkoutSession } from "./types";
+import { BODY_FIELDS, DAY, FOOD, MEAL_TYPE_IDS } from "./limits";
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const isStr = (v: unknown, max = 200): v is string => typeof v === "string" && v.length <= max;
@@ -62,25 +63,14 @@ export function isMeta(v: unknown): v is UserMeta {
   return isObj(p.equipment) && Array.isArray(p.locations) && Array.isArray(p.problemZones) && Array.isArray(p.focusMuscles);
 }
 
-const inRange = (v: unknown, min: number, max: number) => typeof v === "number" && Number.isFinite(v) && v >= min && v <= max;
-const optNum = (v: unknown, max: number) => v === null || v === undefined || inRange(v, 0, max);
+export const inRange = (v: unknown, min: number, max: number) => typeof v === "number" && Number.isFinite(v) && v >= min && v <= max;
 
-function isFood(v: unknown): boolean {
-  return isObj(v) && isStr(v.name, 120) && inRange(v.grams, 0, 5000) && inRange(v.kcal100, 0, 1000) && inRange(v.p100, 0, 100) && inRange(v.f100, 0, 100) && inRange(v.c100, 0, 100);
+/** Продукт в приёме пищи — по тем же пределам, что и ввод (`limits.ts`). */
+export function isFood(v: unknown): v is FoodItem {
+  const m = FOOD.macro100;
+  return isObj(v) && isStr(v.name, FOOD.name) && inRange(v.grams, ...FOOD.grams) && inRange(v.kcal100, ...FOOD.kcal100) && inRange(v.p100, ...m) && inRange(v.f100, ...m) && inRange(v.c100, ...m);
 }
 
-/** Дневник дня из облака или файла: проверяем каждую часть. */
-export function isDay(v: unknown): v is DayLog {
-  if (!isObj(v) || !isStr(v.id, 10) || !/^\d{4}-\d{2}-\d{2}$/.test(v.id) || !isNum(v.updatedAt)) return false;
-  if (!Array.isArray(v.water) || v.water.length > 200 || !v.water.every((w) => isObj(w) && isNum(w.at) && inRange(w.ml, 1, 3000))) return false;
-  if (v.sleep !== null && v.sleep !== undefined && !(isObj(v.sleep) && isStr(v.sleep.bed, 5) && isStr(v.sleep.wake, 5) && inRange(v.sleep.hours, 0, 24) && inRange(v.sleep.quality, 1, 5))) return false;
-  if (v.checkin !== null && v.checkin !== undefined && !(isObj(v.checkin) && ["energy", "soreness", "mood", "stress"].every((k) => inRange((v.checkin as Record<string, unknown>)[k], 1, 5)))) return false;
-  if (v.body !== null && v.body !== undefined && !(isObj(v.body) && Object.values(v.body).every((x) => optNum(x, 500)))) return false;
-  if (!Array.isArray(v.meals) || v.meals.length > 40) return false;
-  return v.meals.every((m) => isObj(m) && isStr(m.id) && isNum(m.at) && isStr(m.title, 120) && Array.isArray(m.items) && m.items.length <= 30 && m.items.every(isFood) && inRange(m.uncertainty, 0, 1));
-}
-
-export const MEAL_TYPE_IDS = ["breakfast", "lunch", "dinner", "snack"] as const;
 
 /**
  * Мягкая проверка дневника из облака или файла: плохие записи внутри дня отбрасываются,
@@ -89,20 +79,20 @@ export const MEAL_TYPE_IDS = ["breakfast", "lunch", "dinner", "snack"] as const;
  */
 export function sanitizeDay(v: unknown): DayLog | null {
   if (!isObj(v) || !isStr(v.id, 10) || !/^\d{4}-\d{2}-\d{2}$/.test(v.id) || !isNum(v.updatedAt)) return null;
-  const water = (Array.isArray(v.water) ? v.water : []).filter((w) => isObj(w) && isNum(w.at) && inRange(w.ml, 1, 3000)).slice(0, 200) as DayLog["water"];
+  const water = (Array.isArray(v.water) ? v.water : []).filter((w) => isObj(w) && isNum(w.at) && inRange(w.ml, ...DAY.waterMl)).slice(0, DAY.water) as DayLog["water"];
   const sleep = isObj(v.sleep) && isStr(v.sleep.bed, 5) && isStr(v.sleep.wake, 5) && inRange(v.sleep.hours, 0, 24) && inRange(v.sleep.quality, 1, 5) ? (v.sleep as unknown as DayLog["sleep"]) : null;
   const checkin = isObj(v.checkin) && ["energy", "soreness", "mood", "stress"].every((k) => inRange((v.checkin as Record<string, unknown>)[k], 1, 5)) ? (v.checkin as unknown as DayLog["checkin"]) : null;
-  const body = isObj(v.body) ? (Object.fromEntries(Object.entries(v.body).filter(([, x]) => inRange(x, 0.1, 500))) as DayLog["body"]) : null;
+  const body = isObj(v.body) ? (Object.fromEntries(BODY_FIELDS.filter((f) => inRange((v.body as Record<string, unknown>)[f.key], 0.1, f.max)).map((f) => [f.key, (v.body as Record<string, unknown>)[f.key]])) as DayLog["body"]) : null;
   const meals = (Array.isArray(v.meals) ? v.meals : [])
     .filter((m) => isObj(m) && isStr(m.id) && isNum(m.at) && isStr(m.title, 120) && Array.isArray(m.items))
     .map((m) => ({
       ...(m as Record<string, unknown>),
       type: MEAL_TYPE_IDS.includes((m as Record<string, unknown>).type as never) ? (m as Record<string, unknown>).type : "snack",
       uncertainty: inRange((m as Record<string, unknown>).uncertainty, 0, 1) ? (m as Record<string, unknown>).uncertainty : 0.25,
-      items: ((m as Record<string, unknown>).items as unknown[]).filter(isFood).slice(0, 30),
+      items: ((m as Record<string, unknown>).items as unknown[]).filter(isFood).slice(0, FOOD.itemsPerMeal),
     }))
     .filter((m) => (m.items as unknown[]).length)
-    .slice(0, 40) as unknown as DayLog["meals"];
+    .slice(0, DAY.meals) as unknown as DayLog["meals"];
   return {
     id: v.id,
     water,

@@ -471,7 +471,6 @@ import { dueReminders } from "../src/domain/reminders";
 import { weekSummary, latestWeight } from "../src/domain/weekly";
 import { nextWorkoutHints } from "../src/domain/advice";
 import { PREHAB } from "../src/data/seed/prehab";
-import { isDay } from "../src/data/validate";
 import { emptyDay, defaultReminders, dayId } from "../src/data/defaults";
 
 describe("рабочие веса", () => {
@@ -489,9 +488,9 @@ describe("рабочие веса", () => {
   it("подсказки к следующей тренировке; с проблемной зоной — осторожно", () => {
     const b = session("b", 2000, "bench_press", [[62.5, 8], [62.5, 8]]);
     const items = [{ id: "i", exerciseId: "bench_press", block: "main" as const, sets: 3, repsMin: 6, repsMax: 8, restSec: 90 }];
-    const lifts = liftSummaries([b], EXERCISE_BY_ID);
-    expect(nextWorkoutHints(items, lifts, EXERCISE_BY_ID, new Set())[0].text).toContain("65 кг");
-    expect(nextWorkoutHints(items, lifts, EXERCISE_BY_ID, new Set(["bench_press"]))[0].text).toContain("если плечо");
+    const lifts = new Map(liftSummaries([b], EXERCISE_BY_ID).map((l) => [l.exerciseId, l]));
+    expect(nextWorkoutHints(items, lifts, EXERCISE_BY_ID, { ...userProfile(), problemZones: [] })[0].text).toContain("65 кг");
+    expect(nextWorkoutHints(items, lifts, EXERCISE_BY_ID, userProfile())[0].text).toContain("если плечо не беспокоит");
   });
 });
 
@@ -551,10 +550,10 @@ describe("питание", () => {
 describe("дневник, напоминания, неделя", () => {
   it("проверка дневника из облака", () => {
     const d = { ...emptyDay("2026-11-09"), updatedAt: 5, water: [{ at: 1, ml: 300 }] };
-    expect(isDay(d)).toBe(true);
-    expect(isDay({ ...d, id: "nope" })).toBe(false);
-    expect(isDay({ ...d, water: [{ at: 1, ml: 99999 }] })).toBe(false);
-    expect(isDay({ ...d, meals: [{ id: "m", at: 1, title: "x", items: [{ name: "a", grams: 1, kcal100: 5000, p100: 1, f100: 1, c100: 1 }], uncertainty: 0.2 }] })).toBe(false);
+    expect(sanitizeDay(d)?.water).toEqual([{ at: 1, ml: 300 }]);
+    expect(sanitizeDay({ ...d, id: "nope" })).toBeNull();
+    expect(sanitizeDay({ ...d, water: [{ at: 1, ml: 99999 }] })?.water).toEqual([]);
+    expect(sanitizeDay({ ...d, meals: [{ id: "m", at: 1, title: "x", items: [{ name: "a", grams: 1, kcal100: 5000, p100: 1, f100: 1, c100: 1 }], uncertainty: 0.2 }] })?.meals).toEqual([]);
   });
   it("напоминания о воде и тренировке", () => {
     const noon = new Date(2026, 10, 9, 13, 0).getTime();
@@ -599,7 +598,6 @@ describe("исправления по ревью", () => {
         { id: "m3", at: 3, type: "hack", title: "Салат", uncertainty: 9, items: [{ name: "Салат", grams: 150, kcal100: 40, p100: 1, f100: 3, c100: 3 }] },
       ],
     };
-    expect(isDay(bad)).toBe(false);
     const d = sanitizeDay(bad)!;
     expect(d.water).toEqual([{ at: 1, ml: 300 }]);
     expect(d.body).toEqual({ armL: 36.5 });

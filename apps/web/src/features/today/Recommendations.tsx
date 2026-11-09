@@ -1,15 +1,13 @@
-import React, { useMemo } from "react";
+import React from "react";
 import { EXERCISE_BY_ID } from "../../data/catalog";
-import { doneSessions, liveSessions, today, useStore } from "../../data/store";
+import { liftsById, liveSessions, today, useStore } from "../../data/store";
 import { dayId } from "../../data/defaults";
 import type { ProgramDay } from "../../data/types";
 import { useNav } from "../../app/nav";
 import { updateDay } from "../../data/store";
-import { liftSummaries } from "../../domain/lifts";
 import { nextWorkoutHints } from "../../domain/advice";
 import { underloaded, type GroupLoad } from "../../domain/balance";
 import { pickVariant } from "../../domain/session";
-import { zoneCaution } from "../../domain/availability";
 import { dueReminders } from "../../domain/reminders";
 import { Icon } from "../../ui/icons";
 
@@ -17,12 +15,10 @@ import { Icon } from "../../ui/icons";
 export function Recommendations({ day, cycle, load }: { day: ProgramDay | null; cycle: number; load: GroupLoad[] }) {
   const nav = useNav();
   const state = useStore((s) => s);
-  const sessions = useStore(doneSessions);
   const log = useStore((s) => today(s));
-  const lifts = useMemo(() => liftSummaries(sessions, EXERCISE_BY_ID), [sessions]);
+  const lifts = useStore(liftsById);
   const items = day ? day.items.map((it) => ({ ...it, exerciseId: pickVariant(it, cycle) })) : [];
-  const caution = new Set(items.filter((it) => EXERCISE_BY_ID[it.exerciseId] && zoneCaution(EXERCISE_BY_ID[it.exerciseId], state.meta.profile)?.limitsHeavy).map((it) => it.exerciseId));
-  const hints = nextWorkoutHints(items, lifts, EXERCISE_BY_ID, caution).slice(0, 4);
+  const hints = nextWorkoutHints(items, lifts, EXERCISE_BY_ID, state.meta.profile).slice(0, 4);
   const low = underloaded(load).slice(0, 2);
   const due = dueReminders(state.meta.reminders, log, liveSessions(state));
   if (!hints.length && !low.length && !due.length) return null;
@@ -51,7 +47,7 @@ export function Recommendations({ day, cycle, load }: { day: ProgramDay | null; 
               </span>
             </button>
           ))}
-          {hints.some((h) => h.kind === "increase" && !caution.has(h.exerciseId)) && <span className="xs muted">Новые веса уже подставлены в план тренировки.</span>}
+          {hints.some((h) => h.kind === "increase" && !h.cautious) && <span className="xs muted">Новые веса уже подставлены в план тренировки.</span>}
         </div>
       )}
       {low.length > 0 && (

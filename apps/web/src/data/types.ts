@@ -377,7 +377,7 @@ export interface FoodItem {
   c100: number;
 }
 
-export type MealType = "breakfast" | "lunch" | "dinner" | "snack";
+export type MealType = (typeof import("./limits").MEAL_TYPE_IDS)[number];
 
 export interface Meal {
   id: ID;

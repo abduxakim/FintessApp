@@ -1,6 +1,7 @@
 // Питание: дневные ориентиры, суммы приёмов пищи и разбор ответа Claude.
 // Все значения — оценки. Формула Миффлина — Сан Жеора даёт ориентир, а не точную потребность.
 import type { DayLog, FoodItem, Goal, Meal, MealType, Profile } from "../data/types";
+import { DAY, FOOD } from "../data/limits";
 
 export interface Targets {
   kcal: number;
@@ -117,7 +118,7 @@ export function buildFoodPrompt(text: string, hasPhoto: boolean): string {
     .join("\n");
 }
 
-const num = (v: unknown, min: number, max: number): number | null => {
+const num = (v: unknown, [min, max]: readonly [number, number]): number | null => {
   const n = typeof v === "number" ? v : typeof v === "string" ? Number(v.replace(",", ".")) : NaN;
   return Number.isFinite(n) && n >= min && n <= max ? n : null;
 };
@@ -128,15 +129,15 @@ export function parseFoodResult(raw: unknown): { title: string; uncertainty: num
   const r = raw as Record<string, unknown>;
   if (!Array.isArray(r.items)) return null;
   const items: FoodItem[] = [];
-  for (const it of r.items.slice(0, 20)) {
+  for (const it of r.items.slice(0, FOOD.itemsPerMeal)) {
     if (!it || typeof it !== "object") continue;
     const o = it as Record<string, unknown>;
-    const name = typeof o.name === "string" ? o.name.trim().slice(0, 80) : "";
-    const grams = num(o.grams, 1, 3000);
-    const p = num(o.p100, 0, 100);
-    const f = num(o.f100, 0, 100);
-    const c = num(o.c100, 0, 100);
-    let kcal = num(o.kcal100, 0, 950);
+    const name = typeof o.name === "string" ? o.name.trim().slice(0, FOOD.name) : "";
+    const grams = num(o.grams, FOOD.grams);
+    const p = num(o.p100, FOOD.macro100);
+    const f = num(o.f100, FOOD.macro100);
+    const c = num(o.c100, FOOD.macro100);
+    let kcal = num(o.kcal100, FOOD.kcal100);
     if (!name || grams == null || p == null || f == null || c == null) continue;
     if (p + f + c > 100.5) continue;
     const fromMacros = p * 4 + f * 9 + c * 4;
@@ -145,6 +146,6 @@ export function parseFoodResult(raw: unknown): { title: string; uncertainty: num
     items.push({ name, grams: Math.round(grams), kcal100: Math.round(kcal), p100: Math.round(p * 10) / 10, f100: Math.round(f * 10) / 10, c100: Math.round(c * 10) / 10 });
   }
   if (!items.length) return null;
-  const u = num(r.uncertainty, 0.05, 0.6) ?? 0.25;
-  return { title: typeof r.title === "string" && r.title.trim() ? r.title.trim().slice(0, 60) : items.map((i) => i.name).join(", ").slice(0, 60), uncertainty: u, items };
+  const u = num(r.uncertainty, [0.05, 0.6]) ?? 0.25;
+  return { title: typeof r.title === "string" && r.title.trim() ? r.title.trim().slice(0, DAY.title) : items.map((i) => i.name).join(", ").slice(0, DAY.title), uncertainty: u, items };
 }

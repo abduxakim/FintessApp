@@ -2,10 +2,12 @@
 // Каждое изменение: память → IndexedDB → очередь outbox → облако (sync.ts).
 // Чтение идёт только из памяти, поэтому интерфейс не ждёт сеть.
 import { useRef, useSyncExternalStore } from "react";
-import { idb } from "./idb";
+import { idb, STORES } from "./idb";
 import { dayId, defaultMeta, emptyDay, normalizeMeta } from "./defaults";
 import { registerCustom } from "./custom";
 import type { DayLog, Program, UserMeta, WorkoutSession } from "./types";
+import { EXERCISE_BY_ID } from "./seed/exercises";
+import { liftSummaries, type LiftSummary } from "../domain/lifts";
 
 export type EntityKind = "meta" | "session" | "program" | "day";
 
@@ -238,24 +240,49 @@ export function getEntity(kind: EntityKind, id: string): UserMeta | WorkoutSessi
 }
 
 export async function resetLocal(): Promise<void> {
-  await Promise.all((["meta", "sessions", "programs", "days", "outbox", "kv"] as const).map((s) => idb.clear(s)));
+  await Promise.all(STORES.map((s) => idb.clear(s)));
   outbox.clear();
   setState({ meta: defaultMeta(), sessions: {}, programs: {}, days: {}, sync: { ...state.sync, pending: 0 } });
 }
 
 // ── Селекторы ──────────────────────────────────────────
 
-export function liveSessions(s: State): WorkoutSession[] {
-  return Object.values(s.sessions).filter((x) => !x.deletedAt);
+/**
+ * Выборка, которая пересчитывается только при смене своих входов (обычно `s.sessions`).
+ * Без этого запись воды или замера пересобирала историю и рабочие веса на каждом экране.
+ */
+function memoOn<T>(deps: (s: State) => unknown[], fn: (s: State) => T): (s: State) => T {
+  let last: unknown[] | null = null;
+  let value: T;
+  return (s) => {
+    const d = deps(s);
+    if (!last || d.length !== last.length || d.some((x, i) => x !== last![i])) {
+      value = fn(s);
+      last = d;
+    }
+    return value;
+  };
 }
+
+export const liveSessions = memoOn(
+  (s) => [s.sessions],
+  (s) => Object.values(s.sessions).filter((x) => !x.deletedAt),
+);
 
 export function activeSession(s: State): WorkoutSession | null {
   const list = liveSessions(s).filter((x) => x.status === "active");
   return list.sort((a, b) => b.startedAt - a.startedAt)[0] ?? null;
 }
 
-export function doneSessions(s: State): WorkoutSession[] {
-  return liveSessions(s)
+export const doneSessions = memoOn(
+  (s) => [s.sessions],
+  (s) => liveSessions(s)
     .filter((x) => x.status === "done")
-    .sort((a, b) => b.startedAt - a.startedAt);
-}
+    .sort((a, b) => b.startedAt - a.startedAt),
+);
+
+/** Рабочие веса по упражнениям. Свои упражнения тоже влияют на каталог, поэтому они во входах. */
+export const liftsById = memoOn(
+  (s) => [s.sessions, s.meta.customExercises],
+  (s): Map<string, LiftSummary> => new Map(liftSummaries(doneSessions(s), EXERCISE_BY_ID).map((l) => [l.exerciseId, l])),
+);

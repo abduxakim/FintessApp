@@ -1,4 +1,6 @@
-import type { CircuitSettings, DayLog, FoodItem, Profile, Reminders, SavedDish, UserMeta } from "./types";
+import type { CircuitSettings, DayLog, Profile, Reminders, SavedDish, UserMeta } from "./types";
+import { inRange, isFood } from "./validate";
+import { DISH, FOOD } from "./limits";
 import { EQUIPMENT_PRESETS } from "./seed/labels";
 
 export const SCHEMA_VERSION = 1;
@@ -91,7 +93,7 @@ export function dayId(ms = Date.now()): string {
 }
 
 const time = (v: unknown, d: string) => (typeof v === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(v) ? v : d);
-const intOrNull = (v: unknown, min: number, max: number) => (typeof v === "number" && Number.isFinite(v) && v >= min && v <= max ? Math.round(v) : null);
+const intOrNull = (v: unknown, min: number, max: number) => (inRange(v, min, max) ? Math.round(v as number) : null);
 
 /** Напоминания из облака или файла: неверные значения заменяются значениями по умолчанию. */
 export function cleanReminders(r: unknown): Reminders {
@@ -107,19 +109,12 @@ export function cleanReminders(r: unknown): Reminders {
   };
 }
 
-const okFood = (i: unknown): i is FoodItem => {
-  if (!i || typeof i !== "object") return false;
-  const o = i as Record<string, unknown>;
-  const n = (v: unknown, max: number) => typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= max;
-  return typeof o.name === "string" && o.name.length <= 120 && n(o.grams, 5000) && n(o.kcal100, 1000) && n(o.p100, 100) && n(o.f100, 100) && n(o.c100, 100);
-};
-
 /** Сохранённые блюда: только корректные продукты, иначе добавление блюда испортит дневник дня. */
 export function cleanDishes(list: unknown): SavedDish[] {
   if (!Array.isArray(list)) return [];
   return list
     .filter((d): d is SavedDish => !!d && typeof d === "object" && typeof (d as SavedDish).id === "string" && typeof (d as SavedDish).name === "string" && Array.isArray((d as SavedDish).items))
-    .map((d) => ({ id: d.id, name: d.name.slice(0, 60), items: d.items.filter(okFood).slice(0, 30), uncertainty: typeof d.uncertainty === "number" && d.uncertainty >= 0 && d.uncertainty <= 1 ? d.uncertainty : 0.25, uses: typeof d.uses === "number" ? d.uses : 0 }))
+    .map((d) => ({ id: d.id, name: d.name.slice(0, DISH.name), items: d.items.filter(isFood).slice(0, FOOD.itemsPerMeal), uncertainty: inRange(d.uncertainty, 0, 1) ? d.uncertainty : 0.25, uses: typeof d.uses === "number" ? d.uses : 0 }))
     .filter((d) => d.items.length)
-    .slice(0, 100);
+    .slice(-DISH.max);
 }

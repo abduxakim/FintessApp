@@ -1,10 +1,9 @@
 import React, { useMemo } from "react";
 import { EXERCISE_BY_ID, programById } from "../../data/catalog";
-import { activeSession, doneSessions, useStore } from "../../data/store";
+import { activeSession, doneSessions, liveSessions, updateMeta, useStore } from "../../data/store";
 import { useNav } from "../../app/nav";
 import { prepareCustom, prepareProgramDay } from "../../app/actions";
 import { groupLoad } from "../../domain/balance";
-import { liveSessions } from "../../data/store";
 import { BLOCKS } from "../../data/catalog";
 import { fmtClock, fmtDay, fmtDuration, fmtShort, fmtTonnage, plural, startOfDay, startOfWeek } from "../../domain/format";
 import { sessionDoneSets, sessionVolume } from "../../domain/strength";
@@ -17,7 +16,6 @@ import { ReadinessCard, WaterCard } from "../wellness/Wellness";
 import { NutritionSummary } from "../nutrition/Nutrition";
 import { Recommendations } from "./Recommendations";
 import { emphasisLine, emphasisOf } from "../../domain/emphasis";
-import { updateMeta } from "../../data/store";
 
 const WEEKDAYS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
 
@@ -25,7 +23,8 @@ export function Today() {
   const nav = useNav();
   const state = useStore((s) => s);
   const active = activeSession(state);
-  const done = useMemo(() => doneSessions(state), [state]);
+  const done = useStore(doneSessions);
+  const live = useStore(liveSessions);
   const en = state.meta.enrollment;
   const program = programById(state, en?.programId);
   const day = program && en ? effectiveDay(program.days[en.nextDayIndex % program.days.length], state.meta.programTweaks?.[program.id]) : null;
@@ -42,7 +41,7 @@ export function Today() {
   const setCircuit = (patch: Partial<typeof circuit>) => updateMeta((m) => ({ ...m, profile: { ...m.profile, circuit: { ...m.profile.circuit, ...patch, configured: true } } }));
   const zones = state.meta.profile.problemZones;
 
-  const load = useMemo(() => groupLoad(liveSessions(state), EXERCISE_BY_ID, state.meta.profile, now), [state]); // eslint-disable-line react-hooks/exhaustive-deps
+  const load = useMemo(() => groupLoad(live, EXERCISE_BY_ID, state.meta.profile, now), [live, state.meta.profile]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // «Начать» открывает план дня: можно посмотреть и поправить упражнения перед стартом.
   const start = () => {

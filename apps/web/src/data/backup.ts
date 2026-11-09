@@ -6,6 +6,7 @@ import { EXERCISE_BY_ID } from "./seed/exercises";
 import { dayTotals, waterTotal } from "../domain/nutrition";
 import { readiness } from "../domain/recovery";
 import type { ExportFile } from "./types";
+import { BODY_FIELDS } from "./limits";
 
 export function buildExport(): ExportFile {
   const s = getState();
@@ -104,11 +105,11 @@ export function workoutsCsv(): string {
 
 export function daysCsv(): string {
   const s = getState();
-  const rows: unknown[][] = [["Дата", "Вода, мл", "Сон, ч", "Качество сна", "Готовность", "Ккал", "Белки", "Жиры", "Углеводы", "Вес", "Талия", "Грудь", "Рука Л", "Рука П", "Предплечье Л", "Предплечье П", "Бедро Л", "Бедро П"]];
+  const rows: unknown[][] = [["Дата", "Вода, мл", "Сон, ч", "Качество сна", "Готовность", "Ккал", "Белки", "Жиры", "Углеводы", ...BODY_FIELDS.map((f) => f.label)]];
   for (const d of Object.values(s.days).sort((a, b) => a.id.localeCompare(b.id))) {
     const t = dayTotals(d);
-    const b = d.body ?? {};
-    rows.push([d.id, waterTotal(d) || null, d.sleep?.hours, d.sleep?.quality, readiness(d.checkin, d.sleep)?.score, d.meals.length ? t.kcal : null, d.meals.length ? t.protein : null, d.meals.length ? t.fat : null, d.meals.length ? t.carbs : null, b.weightKg, b.waistCm, b.chestCm, b.armL, b.armR, b.forearmL, b.forearmR, b.thighL, b.thighR]);
+    const food = d.meals.length ? [t.kcal, t.protein, t.fat, t.carbs] : [null, null, null, null];
+    rows.push([d.id, waterTotal(d) || null, d.sleep?.hours, d.sleep?.quality, readiness(d.checkin, d.sleep)?.score, ...food, ...BODY_FIELDS.map((f) => d.body?.[f.key])]);
   }
   return csv(rows);
 }

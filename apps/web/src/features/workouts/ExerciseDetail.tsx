@@ -1,7 +1,7 @@
 import React, { useMemo } from "react";
 import { EXERCISES, EXERCISE_BY_ID, progressionFor } from "../../data/catalog";
 import { CATEGORIES, DIFFICULTY, EQUIPMENT, LOCATIONS, MUSCLES, ZONES } from "../../data/seed/labels";
-import { doneSessions, useStore } from "../../data/store";
+import { doneSessions, liftsById, useStore } from "../../data/store";
 import { useNav, useScreenState } from "../../app/nav";
 import { MedicalNote, Note, Segmented, TopBar } from "../../ui/kit";
 import { Icon } from "../../ui/icons";
@@ -9,7 +9,6 @@ import { alternatives, zoneCaution } from "../../domain/availability";
 import { computeRecords, exerciseHistory } from "../../domain/history";
 import { fmtShort } from "../../domain/format";
 import { fmtSets, RecordsLine } from "../progress/shared";
-import { liftSummaries } from "../../domain/lifts";
 import { liftLine } from "../progress/Lifts";
 import { LineChart } from "../../ui/LineChart";
 import { BodyMap } from "../../ui/BodyMap";
@@ -179,7 +178,7 @@ export function ExerciseDetail({ id }: { id: string }) {
   const ex = EXERCISE_BY_ID[id];
   const history = useMemo(() => exerciseHistory(id, sessions).slice(0, 6), [id, sessions]);
   const records = useMemo(() => computeRecords(sessions, EXERCISE_BY_ID).get(id), [id, sessions]);
-  const lift = useMemo(() => liftSummaries(sessions, EXERCISE_BY_ID).find((l) => l.exerciseId === id), [id, sessions]);
+  const lift = useStore(liftsById).get(id);
   if (!ex) return <TopBar title="Упражнение не найдено" onBack={nav.back} />;
   return (
     <>

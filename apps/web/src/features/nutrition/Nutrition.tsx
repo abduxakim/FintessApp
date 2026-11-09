@@ -12,6 +12,7 @@ import { fmtTime, parseNum } from "../../domain/format";
 import { Confirm, Note, Segmented, TopBar, toast } from "../../ui/kit";
 import { Icon } from "../../ui/icons";
 import { useTrainingToday } from "../wellness/Wellness";
+import { clamp, DAY, FOOD } from "../../data/limits";
 
 const r0 = (n: number) => Math.round(n);
 
@@ -199,21 +200,22 @@ export function FoodAdd({ mode }: { mode: "photo" | "text" | "saved" | "manual" 
   };
 
   const addManual = async () => {
-    // Те же пределы, что при проверке дневника: иначе день не синхронизируется.
-    const grams = Math.min(3000, Math.max(1, Math.round(parseNum(manual.grams) ?? 100)));
+    // Те же пределы, что при проверке дневника (limits.ts): иначе продукт отбросится при синхронизации.
+    const grams = clamp(Math.round(parseNum(manual.grams) ?? 100), FOOD.grams);
     const kcal = parseNum(manual.kcal);
     if (!manual.name.trim() || kcal == null) return setError("Укажи название и калории.");
-    if (kcal > 5000) return setError("Слишком много калорий для одной порции — проверь число.");
-    const k = 100 / Math.max(1, grams);
+    if (kcal > FOOD.portionKcal) return setError("Слишком много калорий для одной порции — проверь число.");
+    const k = 100 / grams;
+    const per100 = (v: string) => clamp((parseNum(v) ?? 0) * k, FOOD.macro100);
     const now = Date.now();
     await finish({
       id: uuidv7(now),
       at: now,
       type: mealTypeByTime(now),
-      title: manual.name.trim().slice(0, 60),
+      title: manual.name.trim().slice(0, DAY.title),
       source: "manual",
       uncertainty: 0.05,
-      items: [{ name: manual.name.trim().slice(0, 80), grams, kcal100: Math.min(950, kcal * k), p100: Math.min(100, (parseNum(manual.p) ?? 0) * k), f100: Math.min(100, (parseNum(manual.f) ?? 0) * k), c100: Math.min(100, (parseNum(manual.c) ?? 0) * k) }],
+      items: [{ name: manual.name.trim().slice(0, FOOD.name), grams, kcal100: clamp(kcal * k, FOOD.kcal100), p100: per100(manual.p), f100: per100(manual.f), c100: per100(manual.c) }],
     });
   };
 
@@ -365,7 +367,7 @@ export function MealEditor({ date, id }: { date: string; id: string }) {
                     <Icon name="minus" size={16} />
                   </button>
                   <span className="v" style={{ minWidth: "4.5ch" }}>{it.grams} г</span>
-                  <button aria-label={`Больше: ${it.name}`} onClick={() => setItem(i, { grams: Math.min(3000, it.grams + (it.grams >= 100 ? 25 : 10)) })}>
+                  <button aria-label={`Больше: ${it.name}`} onClick={() => setItem(i, { grams: Math.min(FOOD.grams[1], it.grams + (it.grams >= 100 ? 25 : 10)) })}>
                     <Icon name="plus" size={16} />
                   </button>
                 </div>

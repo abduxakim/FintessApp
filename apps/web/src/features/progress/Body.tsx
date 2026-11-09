@@ -6,22 +6,14 @@ import { useNav } from "../../app/nav";
 import { NumField, TopBar, toast } from "../../ui/kit";
 import { LineChart } from "../../ui/LineChart";
 import { fmtKg, fmtShort } from "../../domain/format";
+import { BODY_FIELDS, BODY_GENERAL, BODY_PAIRS, type BodyField } from "../../data/limits";
 
-// Общие замеры и пары «левая | правая» — в два столбца, чтобы стороны стояли рядом.
-const GENERAL: { key: keyof BodyEntry; label: string; unit: string }[] = [
-  { key: "weightKg", label: "Вес", unit: "кг" },
-  { key: "waistCm", label: "Талия", unit: "см" },
-  { key: "chestCm", label: "Грудь", unit: "см" },
+// Пары «левая | правая»: график двух сторон и разница Л − П.
+const PAIRS: { l: keyof BodyEntry; r: keyof BodyEntry; title: string; chart: string; short: string; names: [string, string] }[] = [
+  { l: "armL", r: "armR", title: "Руки: левая и правая", chart: "Объём рук слева и справа", short: "рука", names: ["Левая", "Правая"] },
+  { l: "forearmL", r: "forearmR", title: "Предплечья: левое и правое", chart: "Объём предплечий слева и справа", short: "предплечье", names: ["Левое", "Правое"] },
+  { l: "thighL", r: "thighR", title: "Бёдра: левое и правое", chart: "Объём бёдер слева и справа", short: "бедро", names: ["Левое", "Правое"] },
 ];
-const PAIRS: { key: keyof BodyEntry; label: string; unit: string }[] = [
-  { key: "armL", label: "Рука Л", unit: "см" },
-  { key: "armR", label: "Рука П", unit: "см" },
-  { key: "forearmL", label: "Предплечье Л", unit: "см" },
-  { key: "forearmR", label: "Предплечье П", unit: "см" },
-  { key: "thighL", label: "Бедро Л", unit: "см" },
-  { key: "thighR", label: "Бедро П", unit: "см" },
-];
-const FIELDS = [...GENERAL, ...PAIRS];
 
 const dayMs = (id: string) => {
   const [y, m, d] = id.split("-").map(Number);
@@ -50,15 +42,16 @@ export function BodyScreen() {
     toast("Замеры сохранены");
   };
 
-  const arms = [
-    { name: "Левая", color: "var(--series-2)", points: series(days, "armL") },
-    { name: "Правая", color: "var(--series-1)", points: series(days, "armR") },
-  ].filter((s) => s.points.length);
-  const forearms = [
-    { name: "Левое", color: "var(--series-2)", points: series(days, "forearmL") },
-    { name: "Правое", color: "var(--series-1)", points: series(days, "forearmR") },
-  ].filter((s) => s.points.length);
+  const pairCharts = PAIRS.map((p) => ({
+    ...p,
+    series: [
+      { name: p.names[0], color: "var(--series-2)", points: series(days, p.l) },
+      { name: p.names[1], color: "var(--series-1)", points: series(days, p.r) },
+    ].filter((s) => s.points.length),
+  })).filter((p) => p.series.length);
   const diff = (l?: number | null, r?: number | null) => (l && r ? `${l > r ? "+" : ""}${fmtKg(Math.round((l - r) * 10) / 10)} см` : null);
+  const diffs = last ? PAIRS.map((p) => ({ short: p.short, d: diff(last[p.l], last[p.r]) })).filter((x) => x.d) : [];
+  const field = (f: BodyField) => <NumField key={f.key} id={`body-${f.key}`} label={f.label} suffix={f.unit} max={f.max} value={draft[f.key] ?? null} onChange={(v) => setDraft((d) => ({ ...d, [f.key]: v }))} />;
 
   return (
     <>
@@ -68,27 +61,24 @@ export function BodyScreen() {
           <div className="section-head">
             <h2 className="eyebrow">Замеры на сегодня</h2>
           </div>
-          <div className="grid-2">
-            {GENERAL.map((f) => (
-              <NumField key={f.key} id={`body-${f.key}`} label={f.label} suffix={f.unit} max={f.unit === "кг" ? 400 : 300} value={draft[f.key] ?? null} onChange={(v) => setDraft((d) => ({ ...d, [f.key]: v }))} />
-            ))}
-          </div>
+          <div className="grid-2">{BODY_GENERAL.map(field)}</div>
           <span className="xs muted">Левая и правая сторона — для контроля асимметрии</span>
-          <div className="grid-2">
-            {PAIRS.map((f) => (
-              <NumField key={f.key} id={`body-${f.key}`} label={f.label} suffix={f.unit} max={f.unit === "кг" ? 400 : 300} value={draft[f.key] ?? null} onChange={(v) => setDraft((d) => ({ ...d, [f.key]: v }))} />
-            ))}
-          </div>
+          <div className="grid-2">{BODY_PAIRS.map(field)}</div>
           <p className="xs muted">Мерь в одно и то же время, лучше утром. Руки — в самом широком месте, в расслабленном состоянии. Данные видишь только ты.</p>
           <button className="btn primary block" onClick={save}>
             Сохранить
           </button>
         </section>
 
-        {last && (diff(last.armL, last.armR) || diff(last.forearmL, last.forearmR)) && (
+        {diffs.length > 0 && (
           <p className="small">
-            Разница Л − П: {diff(last.armL, last.armR) && <>рука <b className="num">{diff(last.armL, last.armR)}</b></>}
-            {diff(last.forearmL, last.forearmR) && <> · предплечье <b className="num">{diff(last.forearmL, last.forearmR)}</b></>}
+            Разница Л − П:{" "}
+            {diffs.map((x, i) => (
+              <React.Fragment key={x.short}>
+                {i > 0 && " · "}
+                {x.short} <b className="num">{x.d}</b>
+              </React.Fragment>
+            ))}
           </p>
         )}
 
@@ -100,26 +90,16 @@ export function BodyScreen() {
             <LineChart label="Вес тела по дням" unit="кг" series={[{ name: "Вес", color: "var(--accent)", points: series(days, "weightKg") }]} />
           </div>
         </section>
-        {arms.length > 0 && (
-          <section className="section">
+        {pairCharts.map((p) => (
+          <section key={p.l} className="section">
             <div className="section-head">
-              <h2>Руки: левая и правая</h2>
+              <h2>{p.title}</h2>
             </div>
             <div className="card tight">
-              <LineChart label="Объём рук слева и справа" unit="см" series={arms} />
+              <LineChart label={p.chart} unit="см" series={p.series} />
             </div>
           </section>
-        )}
-        {forearms.length > 0 && (
-          <section className="section">
-            <div className="section-head">
-              <h2>Предплечья: левое и правое</h2>
-            </div>
-            <div className="card tight">
-              <LineChart label="Объём предплечий слева и справа" unit="см" series={forearms} />
-            </div>
-          </section>
-        )}
+        ))}
         {days.length > 0 && (
           <section className="section">
             <div className="section-head">
@@ -132,7 +112,7 @@ export function BodyScreen() {
                     {fmtShort(dayMs(d.id))}
                   </span>
                   <span className="grow small num">
-                    {FIELDS.filter((f) => d.body?.[f.key])
+                    {BODY_FIELDS.filter((f) => d.body?.[f.key])
                       .map((f) => `${f.label} ${fmtKg(d.body![f.key] as number)}`)
                       .join(" · ")}
                   </span>

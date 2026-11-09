@@ -10,10 +10,12 @@ import { Icon } from "../../ui/icons";
 
 export function WeekScreen() {
   const nav = useNav();
-  const state = useStore((s) => s);
+  const sessions = useStore(liveSessions);
+  const days = useStore((s) => s.days);
+  const profile = useStore((s) => s.meta.profile);
   const [offset, setOffset] = useScreenState("week", 0);
-  const w = useMemo(() => weekSummary(liveSessions(state), state.days, state.meta.profile, EXERCISE_BY_ID, offset), [state, offset]);
-  const t = dailyTargets(state.meta.profile, w.weightEnd ?? state.meta.profile.weightKg, false).targets;
+  const w = useMemo(() => weekSummary(sessions, days, profile, EXERCISE_BY_ID, offset), [sessions, days, profile, offset]);
+  const t = dailyTargets(profile, w.weightEnd ?? profile.weightKg, false).targets;
   const pct = (v: number | null, target: number | undefined) => (v != null && target ? `${Math.round((v / target) * 100)}%` : "—");
   const max = Math.max(1, ...w.load.map((l) => Math.max(l.sets, l.target)));
   return (
