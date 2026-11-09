@@ -582,3 +582,65 @@ describe("дневник, напоминания, неделя", () => {
     expect(s.exercises.indexOf(wy)).toBeLessThan(s.exercises.findIndex((e) => e.block === "main"));
   });
 });
+
+import { sanitizeDay } from "../src/data/validate";
+import { cleanDishes, cleanReminders } from "../src/data/defaults";
+
+describe("исправления по ревью", () => {
+  it("одна ошибка в дне не стирает весь день при синхронизации и импорте", () => {
+    const bad = {
+      ...emptyDay("2026-11-09"),
+      updatedAt: 5,
+      water: [{ at: 1, ml: 300 }, { at: 2, ml: 99999 }],
+      body: { weightKg: 800, armL: 36.5 },
+      meals: [
+        { id: "m1", at: 1, type: "lunch", title: "Плов", uncertainty: 0.2, items: [{ name: "Плов", grams: 300, kcal100: 180, p100: 6, f100: 8, c100: 22 }] },
+        { id: "m2", at: 2, type: "??", title: "Кастрюля", uncertainty: 0.2, items: [{ name: "Суп", grams: 6000, kcal100: 50, p100: 2, f100: 1, c100: 5 }] },
+        { id: "m3", at: 3, type: "hack", title: "Салат", uncertainty: 9, items: [{ name: "Салат", grams: 150, kcal100: 40, p100: 1, f100: 3, c100: 3 }] },
+      ],
+    };
+    expect(isDay(bad)).toBe(false);
+    const d = sanitizeDay(bad)!;
+    expect(d.water).toEqual([{ at: 1, ml: 300 }]);
+    expect(d.body).toEqual({ armL: 36.5 });
+    expect(d.meals.map((m) => m.id)).toEqual(["m1", "m3"]);
+    expect(d.meals[1]).toMatchObject({ type: "snack", uncertainty: 0.25 });
+    expect(sanitizeDay({ id: "x", updatedAt: 1 })).toBeNull();
+  });
+  it("CSV: формулы экранируются, числа с запятой", async () => {
+    const { cell } = await import("../src/data/backup");
+    expect(cell('=HYPERLINK("http://x","a")')).toBe('"\'=HYPERLINK(""http://x"",""a"")"');
+    expect(cell("+7")).toBe("'+7");
+    expect(cell("@SUM(A1)")).toBe("'@SUM(A1)");
+    expect(cell("Жим; лёжа")).toBe('"Жим; лёжа"');
+    expect(cell(72.5)).toBe("72,5");
+    expect(cell(-3)).toBe("-3");
+    expect(cell(null)).toBe("");
+  });
+  it("напоминания: окно через полночь, день отдыха", () => {
+    const r = { ...defaultReminders(), activeFrom: "10:00", activeTo: "01:00", workoutGapDays: 3 };
+    const late = new Date(2026, 10, 9, 0, 30).getTime();
+    const day = { ...emptyDay(dayId(late)), water: [{ at: late - 5 * 3600000, ml: 300 }] };
+    expect(dueReminders(r, day, [], late).some((d) => d.kind === "water")).toBe(true);
+    const s = session("s", late - 5 * 86400000, "bench_press", [[60, 5]]);
+    expect(dueReminders(r, day, [s], late).some((d) => d.kind === "workout")).toBe(true);
+    expect(dueReminders(r, { ...day, rest: true }, [s], late).some((d) => d.kind === "workout")).toBe(false);
+  });
+  it("рабочие веса: без разминки, без смешения кг и повторов", () => {
+    const warm = { ...session("w", 3000, "face_pull", [[5, 15]]) };
+    warm.exercises[0].block = "warmup";
+    expect(liftSummaries([warm], EXERCISE_BY_ID).length).toBe(0);
+    const bw = session("a", 1000, "pull_up", [[null, 10]]);
+    const weighted = session("b", 2000, "pull_up", [[10, 6]]);
+    const [l] = liftSummaries([bw, weighted], EXERCISE_BY_ID);
+    expect(l.metric).toBe("weight");
+    expect(l.series).toEqual([{ x: 2000, y: 10 }]);
+    expect(l.delta).toBe(0);
+  });
+  it("сохранённые блюда и напоминания из облака чистятся", () => {
+    const dishes = cleanDishes([{ id: "d", name: "Ок", items: [{ name: "a", grams: 100, kcal100: 100, p100: 5, f100: 5, c100: 5 }], uses: 1, uncertainty: 0.2 }, { id: "x", name: "Плохое", items: [{ name: "b", grams: 1, kcal100: 99999, p100: 1, f100: 1, c100: 1 }] }, null, "мусор"]);
+    expect(dishes.map((d) => d.id)).toEqual(["d"]);
+    const r = cleanReminders({ waterEveryMin: -5, activeFrom: "99:99", workoutGapDays: null, checkin: "да" });
+    expect(r).toMatchObject({ waterEveryMin: 120, activeFrom: "09:00", workoutGapDays: null, checkin: true });
+  });
+});

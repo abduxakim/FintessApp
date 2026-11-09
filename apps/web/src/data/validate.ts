@@ -80,6 +80,44 @@ export function isDay(v: unknown): v is DayLog {
   return v.meals.every((m) => isObj(m) && isStr(m.id) && isNum(m.at) && isStr(m.title, 120) && Array.isArray(m.items) && m.items.length <= 30 && m.items.every(isFood) && inRange(m.uncertainty, 0, 1));
 }
 
+export const MEAL_TYPE_IDS = ["breakfast", "lunch", "dinner", "snack"] as const;
+
+/**
+ * Мягкая проверка дневника из облака или файла: плохие записи внутри дня отбрасываются,
+ * а остальной день сохраняется. Так одна ошибка ввода не стирает весь день при синхронизации.
+ * null — только если повреждена сама структура (id, метка времени).
+ */
+export function sanitizeDay(v: unknown): DayLog | null {
+  if (!isObj(v) || !isStr(v.id, 10) || !/^\d{4}-\d{2}-\d{2}$/.test(v.id) || !isNum(v.updatedAt)) return null;
+  const water = (Array.isArray(v.water) ? v.water : []).filter((w) => isObj(w) && isNum(w.at) && inRange(w.ml, 1, 3000)).slice(0, 200) as DayLog["water"];
+  const sleep = isObj(v.sleep) && isStr(v.sleep.bed, 5) && isStr(v.sleep.wake, 5) && inRange(v.sleep.hours, 0, 24) && inRange(v.sleep.quality, 1, 5) ? (v.sleep as unknown as DayLog["sleep"]) : null;
+  const checkin = isObj(v.checkin) && ["energy", "soreness", "mood", "stress"].every((k) => inRange((v.checkin as Record<string, unknown>)[k], 1, 5)) ? (v.checkin as unknown as DayLog["checkin"]) : null;
+  const body = isObj(v.body) ? (Object.fromEntries(Object.entries(v.body).filter(([, x]) => inRange(x, 0.1, 500))) as DayLog["body"]) : null;
+  const meals = (Array.isArray(v.meals) ? v.meals : [])
+    .filter((m) => isObj(m) && isStr(m.id) && isNum(m.at) && isStr(m.title, 120) && Array.isArray(m.items))
+    .map((m) => ({
+      ...(m as Record<string, unknown>),
+      type: MEAL_TYPE_IDS.includes((m as Record<string, unknown>).type as never) ? (m as Record<string, unknown>).type : "snack",
+      uncertainty: inRange((m as Record<string, unknown>).uncertainty, 0, 1) ? (m as Record<string, unknown>).uncertainty : 0.25,
+      items: ((m as Record<string, unknown>).items as unknown[]).filter(isFood).slice(0, 30),
+    }))
+    .filter((m) => (m.items as unknown[]).length)
+    .slice(0, 40) as unknown as DayLog["meals"];
+  return {
+    id: v.id,
+    water,
+    sleep,
+    checkin,
+    body: body && Object.keys(body).length ? body : null,
+    meals,
+    rest: v.rest === true,
+    createdAt: isNum(v.createdAt) ? v.createdAt : v.updatedAt,
+    updatedAt: v.updatedAt,
+    rev: isNum(v.rev) ? v.rev : 0,
+    deletedAt: null,
+  };
+}
+
 export interface ParsedImport {
   meta: UserMeta | null;
   sessions: WorkoutSession[];
@@ -106,6 +144,6 @@ export function parseImport(text: string): ParsedImport {
   const programs = programsRaw.filter(isProgram);
   const meta = isMeta(file.meta) ? file.meta : null;
   const daysRaw = Array.isArray(file.days) ? file.days : [];
-  const days = daysRaw.filter(isDay);
+  const days = daysRaw.map(sanitizeDay).filter((d): d is DayLog => !!d);
   return { meta, sessions, programs, days, skipped: sessionsRaw.length - sessions.length + programsRaw.length - programs.length + daysRaw.length - days.length };
 }

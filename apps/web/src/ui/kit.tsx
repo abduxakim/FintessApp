@@ -89,7 +89,7 @@ export function Segmented<T extends string | number>({ value, options, onChange,
 }
 
 /** Числовое поле: принимает запятую, сохраняет на blur, чтобы не дёргать хранилище на каждый символ. */
-export function NumField({ id, label, value, onChange, suffix, placeholder, step }: { id: string; label: string; value: number | null | undefined; onChange: (v: number | null) => void; suffix?: string; placeholder?: string; step?: "int" | "dec" }) {
+export function NumField({ id, label, value, onChange, suffix, placeholder, step, max = 10000 }: { id: string; label: string; value: number | null | undefined; onChange: (v: number | null) => void; suffix?: string; placeholder?: string; step?: "int" | "dec"; max?: number }) {
   const [text, setText] = useState(value == null ? "" : String(value).replace(".", ","));
   useEffect(() => setText(value == null ? "" : String(value).replace(".", ",")), [value]);
   return (
@@ -107,7 +107,7 @@ export function NumField({ id, label, value, onChange, suffix, placeholder, step
             const t = text.trim().replace(",", ".");
             if (!t) return onChange(null);
             const n = Number(t);
-            if (Number.isFinite(n) && n >= 0 && n < 10000) onChange(step === "int" ? Math.round(n) : Math.round(n * 100) / 100);
+            if (Number.isFinite(n) && n >= 0 && n <= max) onChange(step === "int" ? Math.round(n) : Math.round(n * 100) / 100);
             else setText(value == null ? "" : String(value));
           }}
         />

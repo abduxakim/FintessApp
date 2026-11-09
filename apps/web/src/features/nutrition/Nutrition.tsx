@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { today, updateDay, updateMeta, useStore } from "../../data/store";
 import { dayId } from "../../data/defaults";
 import { capability } from "../../data/runtime";
@@ -153,6 +153,12 @@ export function FoodAdd({ mode }: { mode: "photo" | "text" | "saved" | "manual" 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [manual, setManual] = useState({ name: "", grams: "100", kcal: "", p: "", f: "", c: "" });
+  useEffect(
+    () => () => {
+      if (img) URL.revokeObjectURL(img.url);
+    },
+    [img],
+  );
   const [removeId, setRemoveId] = useState<string | null>(null);
 
   const finish = async (meal: Meal) => {
@@ -193,9 +199,11 @@ export function FoodAdd({ mode }: { mode: "photo" | "text" | "saved" | "manual" 
   };
 
   const addManual = async () => {
-    const grams = parseNum(manual.grams) ?? 100;
+    // Те же пределы, что при проверке дневника: иначе день не синхронизируется.
+    const grams = Math.min(3000, Math.max(1, Math.round(parseNum(manual.grams) ?? 100)));
     const kcal = parseNum(manual.kcal);
     if (!manual.name.trim() || kcal == null) return setError("Укажи название и калории.");
+    if (kcal > 5000) return setError("Слишком много калорий для одной порции — проверь число.");
     const k = 100 / Math.max(1, grams);
     const now = Date.now();
     await finish({

@@ -22,13 +22,18 @@ export function activityFactor(daysPerWeek: number): number {
 }
 
 /** Ориентиры на день. null — не хватает данных профиля (что именно — в missing). */
+/** Вода: 33 мл на кг (+0,5 л в день тренировки). Не зависит от пола и возраста. */
+export function waterTarget(weightKg: number | null, trainingDay: boolean): number {
+  return weightKg ? Math.round((weightKg * 33 + (trainingDay ? 500 : 0)) / 100) * 100 : trainingDay ? 2500 : 2000;
+}
+
 export function dailyTargets(p: Profile, weightKg: number | null, trainingDay: boolean, year = new Date().getFullYear()): { targets: Targets | null; missing: string[] } {
   const missing: string[] = [];
   if (!weightKg) missing.push("вес");
   if (!p.heightCm) missing.push("рост");
-  if (!p.birthYear) missing.push("год рождения");
+  if (!p.birthYear || p.birthYear > year - 10 || p.birthYear < year - 100) missing.push("год рождения");
   if (!p.sex) missing.push("пол");
-  const water = weightKg ? Math.round((weightKg * 33 + (trainingDay ? 500 : 0)) / 100) * 100 : trainingDay ? 2500 : 2000;
+  const water = waterTarget(weightKg, trainingDay);
   if (missing.length) return { targets: null, missing };
   const age = year - p.birthYear!;
   const bmr = 10 * weightKg! + 6.25 * p.heightCm! - 5 * age + (p.sex === "male" ? 5 : -161);

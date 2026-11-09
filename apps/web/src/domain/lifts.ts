@@ -24,6 +24,10 @@ export interface LiftSummary {
   next: OverloadHint | null;
   sessions: number;
   lastSets: SetLog[];
+  /** Что откладывать на графике: вес, если упражнение хоть раз делалось с весом; иначе повторы или время. */
+  metric: "weight" | "reps" | "time";
+  /** Точки графика в одной единице измерения. */
+  series: { x: number; y: number }[];
 }
 
 function pointOf(sets: SetLog[], ex: Exercise | undefined, at: number): LiftPoint | null {
@@ -45,7 +49,8 @@ export function liftSummaries(sessions: WorkoutSession[], byId: Record<string, E
   for (const s of list) {
     for (const e of s.exercises) {
       const ex = byId[e.exerciseId];
-      if (!ex || e.circuit || ex.category === "warmup" || ex.category === "stretch" || ex.category === "mobility" || ex.category === "cardio") continue;
+      // Только основная часть: лёгкие подходы разминки и профилактики — не рабочий вес.
+      if (!ex || e.circuit || e.block !== "main" || ["warmup", "stretch", "mobility", "cardio", "prehab"].includes(ex.category)) continue;
       const p = pointOf(e.sets, ex, s.startedAt);
       if (!p) continue;
       const cur = map.get(e.exerciseId) ?? { points: [], lastSets: [], repsMin: null, repsMax: null };
@@ -61,14 +66,19 @@ export function liftSummaries(sessions: WorkoutSession[], byId: Record<string, E
     const ex = byId[exerciseId];
     const last = v.points[v.points.length - 1];
     const prev = v.points[v.points.length - 2];
-    const metric = (p: LiftPoint) => (p.weight ? p.weight : p.best);
+    const metric: LiftSummary["metric"] = ex?.tracking === "time" ? "time" : v.points.some((p) => p.weight > 0) ? "weight" : "reps";
+    const value = (p: LiftPoint) => (metric === "weight" ? p.weight : p.best);
+    // Изменение — только между сравнимыми точками (оба раза с весом или оба без).
+    const comparable = prev && (metric !== "weight" || (prev.weight > 0 && last.weight > 0));
     out.push({
       exerciseId,
       points: v.points,
       last,
       bestWeight: Math.max(...v.points.map((p) => p.weight)),
       bestE1rm: v.points.some((p) => p.e1rm) ? Math.max(...v.points.map((p) => p.e1rm ?? 0)) : null,
-      delta: prev ? metric(last) - metric(prev) : 0,
+      delta: comparable ? value(last) - value(prev) : 0,
+      metric,
+      series: v.points.filter((p) => metric !== "weight" || p.weight > 0).map((p) => ({ x: p.at, y: value(p) })),
       next: ex ? overloadHint(ex, v.lastSets, v.repsMin, v.repsMax) : null,
       sessions: v.points.length,
       lastSets: v.lastSets,

@@ -40,6 +40,7 @@ export async function exportToFile(): Promise<ExportResult> {
 export interface ImportSummary {
   sessions: number;
   programs: number;
+  days: number;
   profile: boolean;
   skipped: number;
 }
@@ -66,18 +67,24 @@ export async function importFromText(text: string): Promise<ImportSummary> {
       await requeue("program", p.id);
     }
   }
+  let days = 0;
   for (const d of parsed.days) {
-    if (await applyRemote("day", d)) await requeue("day", d.id);
+    if (await applyRemote("day", d)) {
+      days++;
+      await requeue("day", d.id);
+    }
   }
-  return { sessions, programs, profile, skipped: parsed.skipped };
+  return { sessions, programs, days, profile, skipped: parsed.skipped };
 }
 
 // ── CSV (для Excel / Google Таблиц): разделитель «;», десятичная запятая, BOM для кириллицы ──
 
-const cell = (v: unknown): string => {
+export const cell = (v: unknown): string => {
   if (v == null) return "";
-  const t = typeof v === "number" ? String(Math.round(v * 100) / 100).replace(".", ",") : String(v);
-  return /[;"\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
+  let t = typeof v === "number" ? String(Math.round(v * 100) / 100).replace(".", ",") : String(v);
+  // Защита от CSV-инъекции: текст, начинающийся с = + - @, таблицы выполняют как формулу.
+  if (typeof v === "string" && /^[=+\-@\t\r]/.test(t)) t = "'" + t;
+  return /[;"\n\r]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
 };
 const csv = (rows: unknown[][]) => "\ufeff" + rows.map((r) => r.map(cell).join(";")).join("\r\n");
 

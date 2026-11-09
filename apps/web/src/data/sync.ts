@@ -10,7 +10,7 @@
 // одновременные правки с двух устройств редки.
 import { capability, type CollectionRef, type Db, type DbError, type DocRef, type DocSnap, type UserCap } from "./runtime";
 import { ackOutbox, applyRemote, finishBootstrap, getEntity, getState, outboxEntries, requeue, setLocalChangeHandler, setSyncStatus, type EntityKind, type OutboxEntry } from "./store";
-import { isDay, isMeta, isProgram, isSession } from "./validate";
+import { isMeta, isProgram, isSession, sanitizeDay } from "./validate";
 import { idb } from "./idb";
 
 const PAGE = 300;
@@ -112,15 +112,21 @@ async function pull(): Promise<void> {
     }
 
     const remoteIds = { session: new Set<string>(), program: new Set<string>(), day: new Set<string>() };
-    for (const [kind, col, guard] of [
-      ["session", sessionsCol, isSession],
-      ["program", programsCol, isProgram],
-      ["day", daysCol, isDay],
+    // Дневник проверяется мягко: плохие записи внутри дня отбрасываются, а не весь день.
+    const strict = <T,>(guard: (v: unknown) => v is T) => (v: unknown) => (guard(v) ? v : null);
+    for (const [kind, col, clean] of [
+      ["session", sessionsCol, strict(isSession)],
+      ["program", programsCol, strict(isProgram)],
+      ["day", daysCol, sanitizeDay],
     ] as const) {
       const docs = await readAll(col, since);
       for (const d of docs) {
-        const body = d.data()?.data;
-        if (!(guard as (v: unknown) => boolean)(body)) continue;
+        const body = (clean as (v: unknown) => unknown)(d.data()?.data);
+        if (!body) {
+          // Повреждённую запись не применяем, но и не перетираем вслепую при первой синхронизации.
+          remoteIds[kind].add(d.id);
+          continue;
+        }
         const entity = body as { id: string; updatedAt: number };
         remoteIds[kind].add(entity.id);
         maxSeen = Math.max(maxSeen, entity.updatedAt);

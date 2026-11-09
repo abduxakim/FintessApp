@@ -6,7 +6,7 @@ import { useNav } from "../../app/nav";
 import { startDraft } from "../../app/actions";
 import { setDraftRemember, updateDraft, updateDraftExercise, useDraft } from "../../app/draft";
 import { addSet, makeSessionExercise, moveItem, swapExercise } from "../../domain/session";
-import { alternatives, isAvailable } from "../../domain/availability";
+import { alternatives, isAvailable, zoneCaution } from "../../domain/availability";
 import { exerciseForGroup, groupLoad, underloaded } from "../../domain/balance";
 import { fmtClock, fmtKg } from "../../domain/format";
 import { liftSummaries } from "../../domain/lifts";
@@ -53,7 +53,8 @@ export function Preview() {
   const profile = state.meta.profile;
   const loc = profile.locations[0] ?? "gym";
   const load = useMemo(() => groupLoad(liveSessions(state), EXERCISE_BY_ID, profile), [state, profile]);
-  const lifts = useMemo(() => new Map(liftSummaries(liveSessions(state), EXERCISE_BY_ID).map((l) => [l.exerciseId, l])), [state]);
+  const sessionsMap = state.sessions;
+  const lifts = useMemo(() => new Map(liftSummaries(Object.values(sessionsMap).filter((x) => !x.deletedAt), EXERCISE_BY_ID).map((l) => [l.exerciseId, l])), [sessionsMap]);
 
   if (!draft) {
     return (
@@ -154,12 +155,11 @@ export function Preview() {
                     const l = lifts.get(e.exerciseId);
                     if (!l?.next || e.block !== "main") return null;
                     const w = e.sets[0]?.weight;
-                    if (l.next.kind === "increase")
-                      return (
-                        <span className="xs hint-up">
-                          {w === l.next.weight ? `▲ новый вес ${fmtKg(w)} кг (было ${fmtKg(l.last.weight)})` : `можно ${fmtKg(l.next.weight)} кг — вес оставлен из-за проблемной зоны`}
-                        </span>
-                      );
+                    if (l.next.kind === "increase") {
+                      if (w === l.next.weight) return <span className="xs hint-up">▲ новый вес {fmtKg(w)} кг (было {fmtKg(l.last.weight)})</span>;
+                      const caution = zoneCaution(ex, profile)?.limitsHeavy;
+                      return <span className="xs hint-up">{caution ? `можно ${fmtKg(l.next.weight)} кг, если зона не беспокоит — вес не менял` : `совет: ${fmtKg(l.next.weight)} кг`}</span>;
+                    }
                     return l.last.weight ? <span className="xs muted">прошлый раз {fmtKg(l.last.weight)} кг × {l.last.reps}</span> : null;
                   })()}
                   {e.swappedFromId && <span className="xs muted">вместо «{EXERCISE_BY_ID[e.swappedFromId]?.name}»</span>}

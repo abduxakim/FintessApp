@@ -13,10 +13,10 @@ export function liftLine(l: LiftSummary, tracking: string | undefined): string {
   return `${l.last.best} повт.`;
 }
 
-function Delta({ l, tracking }: { l: LiftSummary; tracking: string | undefined }) {
+function Delta({ l }: { l: LiftSummary; tracking?: string }) {
   if (l.sessions < 2 || !l.delta) return <span className="xs muted">{l.sessions < 2 ? "первый раз" : "без изменений"}</span>;
   const up = l.delta > 0;
-  const unit = tracking === "time" ? " с" : l.last.weight ? " кг" : " повт.";
+  const unit = l.metric === "time" ? " с" : l.metric === "weight" ? " кг" : " повт.";
   return (
     <span className={"pill " + (up ? "good" : "warn")}>
       {up ? "▲" : "▼"} {fmtKg(Math.abs(l.delta))}

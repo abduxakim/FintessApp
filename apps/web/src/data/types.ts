@@ -398,6 +398,8 @@ export interface DayLog extends SyncFields {
   checkin: Checkin | null;
   body: BodyEntry | null;
   meals: Meal[];
+  /** «Перенести»: сегодня запланирован отдых. */
+  rest?: boolean;
 }
 
 export interface SavedDish {

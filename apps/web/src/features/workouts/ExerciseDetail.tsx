@@ -200,11 +200,11 @@ export function ExerciseDetail({ id }: { id: string }) {
                 <span className="xs muted">{lift.sessions} трен.</span>
               </div>
               {lift.next && <p className="hint-up small">Следующий раз: {lift.next.text}</p>}
-              {lift.points.length >= 2 && (
+              {lift.series.length >= 2 && (
                 <LineChart
-                  label={`${ex.name}: ${ex.tracking === "time" ? "время" : lift.last.weight ? "рабочий вес" : "повторы"}`}
-                  unit={ex.tracking === "time" ? "с" : lift.last.weight ? "кг" : "повт."}
-                  series={[{ name: "Рабочий вес", color: "var(--accent)", points: lift.points.map((p) => ({ x: p.at, y: lift.last.weight ? p.weight : p.best })) }]}
+                  label={`${ex.name}: ${lift.metric === "time" ? "время" : lift.metric === "weight" ? "рабочий вес" : "повторы"}`}
+                  unit={lift.metric === "time" ? "с" : lift.metric === "weight" ? "кг" : "повт."}
+                  series={[{ name: lift.metric === "weight" ? "Рабочий вес" : lift.metric === "time" ? "Время" : "Повторы", color: "var(--accent)", points: lift.series }]}
                 />
               )}
             </div>

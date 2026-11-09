@@ -187,7 +187,7 @@ export function DataScreen() {
       if (file.size > 20 * 1024 * 1024) throw new Error("Файл слишком большой");
       const text = await file.text();
       const r = await importFromText(text);
-      toast(`Импорт: тренировок ${r.sessions}${r.profile ? ", профиль обновлён" : ""}${r.skipped ? `, пропущено ${r.skipped}` : ""}`);
+      toast(`Импорт: тренировок ${r.sessions}, дней дневника ${r.days}${r.profile ? ", профиль обновлён" : ""}${r.skipped ? `, пропущено ${r.skipped}` : ""}`);
     } catch (e) {
       toast((e as Error).message || "Не удалось прочитать файл");
     }

@@ -70,13 +70,13 @@ export function BodyScreen() {
           </div>
           <div className="grid-2">
             {GENERAL.map((f) => (
-              <NumField key={f.key} id={`body-${f.key}`} label={f.label} suffix={f.unit} value={draft[f.key] ?? null} onChange={(v) => setDraft((d) => ({ ...d, [f.key]: v }))} />
+              <NumField key={f.key} id={`body-${f.key}`} label={f.label} suffix={f.unit} max={f.unit === "кг" ? 400 : 300} value={draft[f.key] ?? null} onChange={(v) => setDraft((d) => ({ ...d, [f.key]: v }))} />
             ))}
           </div>
           <span className="xs muted">Левая и правая сторона — для контроля асимметрии</span>
           <div className="grid-2">
             {PAIRS.map((f) => (
-              <NumField key={f.key} id={`body-${f.key}`} label={f.label} suffix={f.unit} value={draft[f.key] ?? null} onChange={(v) => setDraft((d) => ({ ...d, [f.key]: v }))} />
+              <NumField key={f.key} id={`body-${f.key}`} label={f.label} suffix={f.unit} max={f.unit === "кг" ? 400 : 300} value={draft[f.key] ?? null} onChange={(v) => setDraft((d) => ({ ...d, [f.key]: v }))} />
             ))}
           </div>
           <p className="xs muted">Мерь в одно и то же время, лучше утром. Руки — в самом широком месте, в расслабленном состоянии. Данные видишь только ты.</p>

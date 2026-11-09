@@ -7,7 +7,7 @@ import { useNav } from "../../app/nav";
 import { prepareProgramDay } from "../../app/actions";
 import { getDraft, setDraft } from "../../app/draft";
 import { readiness, lightenSession, sleepHours, type Readiness } from "../../domain/recovery";
-import { dailyTargets, waterTotal } from "../../domain/nutrition";
+import { waterTarget, waterTotal } from "../../domain/nutrition";
 import { latestWeight } from "../../domain/weekly";
 import { startOfDay } from "../../domain/format";
 import { Sheet, toast } from "../../ui/kit";
@@ -23,7 +23,7 @@ export function WaterCard() {
   const state = useStore((s) => s);
   const training = useTrainingToday();
   const drunk = waterTotal(log);
-  const target = dailyTargets(state.meta.profile, latestWeight(state.days, state.meta.profile), training).targets?.water ?? (training ? 2500 : 2000);
+  const target = waterTarget(latestWeight(state.days, state.meta.profile), training);
   const pct = Math.min(100, Math.round((drunk / target) * 100));
   const add = (ml: number) => updateDay(dayId(), (d) => ({ ...d, water: [...d.water, { at: Date.now(), ml }] }));
   const undo = () => updateDay(dayId(), (d) => ({ ...d, water: d.water.slice(0, -1) }));
@@ -157,6 +157,7 @@ export function ReadinessCard() {
           </span>
         )}
       </div>
+      {log.rest && <p className="small" style={{ color: "var(--accent)" }}>Сегодня день отдыха — напоминание о тренировке не показываю.</p>}
       {r ? (
         <>
           <p className="small dim">{r.advice}</p>
@@ -174,8 +175,11 @@ export function ReadinessCard() {
                 </button>
               )}
               {r.suggest.includes("rest") && (
-                <button className="btn small ghost" onClick={() => toast("Отдыхаем. Следующая тренировка дождётся тебя")}>
-                  Перенести
+                <button
+                  className="btn small ghost"
+                  onClick={() => updateDay(dayId(), (d) => ({ ...d, rest: !d.rest })).then(() => toast(today(getState()).rest ? "Сегодня отдых. Следующая тренировка дождётся тебя" : "День отдыха отменён"))}
+                >
+                  {log.rest ? "Отменить отдых" : "Перенести на завтра"}
                 </button>
               )}
             </div>
