@@ -55,6 +55,12 @@ export function WorkoutsHome() {
           <button className="btn" onClick={() => nav.push({ name: "ask" })}>
             <Icon name="spark" size={18} /> По запросу
           </button>
+          <button className="btn" onClick={() => nav.push({ name: "prehab" })}>
+            <Icon name="shield" size={18} /> Профилактика
+          </button>
+          <button className="btn" onClick={() => nav.push({ name: "photo" })}>
+            <Icon name="camera" size={18} /> Тренажёр по фото
+          </button>
         </div>
 
         <section className="section">

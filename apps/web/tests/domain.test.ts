@@ -463,3 +463,122 @@ describe("упор тренировки", () => {
     expect(e.groups.map((g) => g.group)).toEqual(["Кор"]);
   });
 });
+
+import { liftSummaries } from "../src/domain/lifts";
+import { readiness, lightenSession, sleepHours } from "../src/domain/recovery";
+import { dailyTargets, mealTotals, parseFoodResult, buildFoodPrompt } from "../src/domain/nutrition";
+import { dueReminders } from "../src/domain/reminders";
+import { weekSummary, latestWeight } from "../src/domain/weekly";
+import { nextWorkoutHints } from "../src/domain/advice";
+import { PREHAB } from "../src/data/seed/prehab";
+import { isDay } from "../src/data/validate";
+import { emptyDay, defaultReminders, dayId } from "../src/data/defaults";
+
+describe("рабочие веса", () => {
+  it("последний, лучший, изменение и совет на следующий раз", () => {
+    const a = session("a", 1000, "bench_press", [[60, 8], [60, 8]]);
+    const b = session("b", 2000, "bench_press", [[62.5, 8], [62.5, 8]]);
+    const [l] = liftSummaries([a, b], EXERCISE_BY_ID);
+    expect(l.last.weight).toBe(62.5);
+    expect(l.delta).toBe(2.5);
+    expect(l.bestWeight).toBe(62.5);
+    expect(l.points.length).toBe(2);
+    expect(l.next?.kind).toBe("increase");
+    expect(l.next?.weight).toBe(65);
+  });
+  it("подсказки к следующей тренировке; с проблемной зоной — осторожно", () => {
+    const b = session("b", 2000, "bench_press", [[62.5, 8], [62.5, 8]]);
+    const items = [{ id: "i", exerciseId: "bench_press", block: "main" as const, sets: 3, repsMin: 6, repsMax: 8, restSec: 90 }];
+    const lifts = liftSummaries([b], EXERCISE_BY_ID);
+    expect(nextWorkoutHints(items, lifts, EXERCISE_BY_ID, new Set())[0].text).toContain("65 кг");
+    expect(nextWorkoutHints(items, lifts, EXERCISE_BY_ID, new Set(["bench_press"]))[0].text).toContain("если плечо");
+  });
+});
+
+describe("восстановление", () => {
+  const ck = (v: number) => ({ at: 0, energy: v, soreness: v, mood: v, stress: v });
+  it("уровни готовности", () => {
+    expect(readiness(ck(5), { bed: "23:00", wake: "07:30", hours: 8.5, quality: 5 })!.level).toBe("high");
+    expect(readiness(ck(3), { bed: "01:00", wake: "07:00", hours: 6, quality: 3 })!.level).toBe("medium");
+    expect(readiness(ck(1), { bed: "03:00", wake: "07:00", hours: 4, quality: 1 })!.level).toBe("low");
+    expect(readiness(null, null)).toBeNull();
+  });
+  it("сон через полночь и облегчённая тренировка", () => {
+    expect(sleepHours("23:30", "07:10")).toBeCloseTo(7.7, 1);
+    expect(sleepHours("01:00", "09:00")).toBe(8);
+    const s = buildSessionFromProgram({ program: PROGRAMS[0], dayIndex: 0, profile: userProfile(), sessions: [session("x", 1, "bench_press", [[70, 8]])], exerciseById: EXERCISE_BY_ID, all: EXERCISES });
+    const light = lightenSession(s);
+    const bench = light.exercises.find((e) => e.exerciseId === "bench_press")!;
+    expect(bench.targetSets).toBe(3);
+    expect(bench.sets[0].weight).toBe(62.5);
+    expect(light.exercises.find((e) => e.block === "warmup")!.targetSets).toBe(s.exercises.find((e) => e.block === "warmup")!.targetSets);
+  });
+});
+
+describe("питание", () => {
+  const p = { ...userProfile(), sex: "male" as const, birthYear: 2000, heightCm: 185 };
+  it("ориентиры: нужны вес, рост, возраст, пол", () => {
+    expect(dailyTargets({ ...p, sex: null }, 79, false).missing).toContain("пол");
+    const t = dailyTargets(p, 79, false, 2026).targets!;
+    // BMR = 790 + 1156.25 − 130 + 5 = 1821; × 1.375 × 0.9 ≈ 2250
+    expect(t.kcal).toBeGreaterThan(2150);
+    expect(t.kcal).toBeLessThan(2350);
+    expect(t.protein).toBe(158);
+    expect(t.protein * 4 + t.fat * 9 + t.carbs * 4).toBeLessThanOrEqual(t.kcal + 4);
+    expect(dailyTargets(p, 79, true).targets!.water).toBeGreaterThan(t.water);
+  });
+  it("диапазон калорий и проверка ответа Claude", () => {
+    const r = parseFoodResult({
+      title: "Плов и салат",
+      uncertainty: 0.2,
+      items: [
+        { name: "Плов", grams: 300, kcal100: 180, p100: 6, f100: 8, c100: 22 },
+        { name: "Салат", grams: 150, kcal100: 900, p100: 1, f100: 3, c100: 4 },
+        { name: "Мусор", grams: 100, p100: 80, f100: 30, c100: 20 },
+        { name: "", grams: 10, p100: 1, f100: 1, c100: 1 },
+      ],
+    })!;
+    expect(r.items.length).toBe(2);
+    expect(r.items[1].kcal100).toBe(Math.round(1 * 4 + 3 * 9 + 4 * 4)); // калорийность поправлена по БЖУ
+    const t = mealTotals(r);
+    expect(t.kcal).toBeCloseTo(540 + r.items[1].kcal100 * 1.5, 0);
+    expect(t.kcalMin).toBeCloseTo(t.kcal * 0.8, 0);
+    expect(parseFoodResult({ items: [] })).toBeNull();
+    expect(buildFoodPrompt("плов", false)).not.toMatch(/вес тела|79/);
+  });
+});
+
+describe("дневник, напоминания, неделя", () => {
+  it("проверка дневника из облака", () => {
+    const d = { ...emptyDay("2026-11-09"), updatedAt: 5, water: [{ at: 1, ml: 300 }] };
+    expect(isDay(d)).toBe(true);
+    expect(isDay({ ...d, id: "nope" })).toBe(false);
+    expect(isDay({ ...d, water: [{ at: 1, ml: 99999 }] })).toBe(false);
+    expect(isDay({ ...d, meals: [{ id: "m", at: 1, title: "x", items: [{ name: "a", grams: 1, kcal100: 5000, p100: 1, f100: 1, c100: 1 }], uncertainty: 0.2 }] })).toBe(false);
+  });
+  it("напоминания о воде и тренировке", () => {
+    const noon = new Date(2026, 10, 9, 13, 0).getTime();
+    const day = { ...emptyDay(dayId(noon)), water: [{ at: noon - 3 * 3600000, ml: 300 }] };
+    const due = dueReminders(defaultReminders(), day, [session("s", noon - 6 * 86400000, "bench_press", [[60, 5]])], noon);
+    expect(due.map((d) => d.kind)).toEqual(expect.arrayContaining(["water", "workout", "checkin"]));
+    const night = new Date(2026, 10, 9, 23, 30).getTime();
+    expect(dueReminders(defaultReminders(), day, [], night).some((d) => d.kind === "water")).toBe(false);
+  });
+  it("недельная сводка и последний вес", () => {
+    const now = new Date(2026, 10, 12, 12).getTime();
+    const s = session("w", now - 86400000, "bench_press", [[60, 8], [60, 8]]);
+    const days = { [dayId(now)]: { ...emptyDay(dayId(now)), sleep: { bed: "23:00", wake: "07:00", hours: 8, quality: 4 }, body: { weightKg: 78.5 } } };
+    const w = weekSummary([s], days, userProfile(), EXERCISE_BY_ID, 0, now);
+    expect(w.workouts).toBe(1);
+    expect(w.sets).toBe(2);
+    expect(w.sleepAvg).toBe(8);
+    expect(latestWeight(days, { ...userProfile(), weightKg: 80 })).toBe(78.5);
+  });
+  it("профилактика: все упражнения есть в каталоге и встают в разминку", () => {
+    for (const i of PREHAB) for (const st of [...i.mobility, ...i.activation, ...i.strength]) expect(EXERCISE_BY_ID[st.exerciseId], `${i.id}:${st.exerciseId}`).toBeDefined();
+    const s = buildSessionFromProgram({ program: PROGRAMS[0], dayIndex: 0, profile: { ...userProfile(), prehabIssue: "shoulder_click" }, sessions: [], exerciseById: EXERCISE_BY_ID, all: EXERCISES });
+    const wy = s.exercises.find((e) => e.exerciseId === "wall_slide")!;
+    expect(wy.block).toBe("warmup");
+    expect(s.exercises.indexOf(wy)).toBeLessThan(s.exercises.findIndex((e) => e.block === "main"));
+  });
+});

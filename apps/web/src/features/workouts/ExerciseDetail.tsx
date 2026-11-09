@@ -9,6 +9,9 @@ import { alternatives, zoneCaution } from "../../domain/availability";
 import { computeRecords, exerciseHistory } from "../../domain/history";
 import { fmtShort } from "../../domain/format";
 import { fmtSets, RecordsLine } from "../progress/shared";
+import { liftSummaries } from "../../domain/lifts";
+import { liftLine } from "../progress/Lifts";
+import { LineChart } from "../../ui/LineChart";
 import { BodyMap } from "../../ui/BodyMap";
 
 export function videoSearchUrl(name: string): string {
@@ -176,6 +179,7 @@ export function ExerciseDetail({ id }: { id: string }) {
   const ex = EXERCISE_BY_ID[id];
   const history = useMemo(() => exerciseHistory(id, sessions).slice(0, 6), [id, sessions]);
   const records = useMemo(() => computeRecords(sessions, EXERCISE_BY_ID).get(id), [id, sessions]);
+  const lift = useMemo(() => liftSummaries(sessions, EXERCISE_BY_ID).find((l) => l.exerciseId === id), [id, sessions]);
   if (!ex) return <TopBar title="Упражнение не найдено" onBack={nav.back} />;
   return (
     <>
@@ -187,6 +191,24 @@ export function ExerciseDetail({ id }: { id: string }) {
             <h2>Моя история</h2>
           </div>
           {records && <RecordsLine rec={records} tracking={ex.tracking} />}
+          {lift && (
+            <div className="card tight">
+              <div className="row">
+                <span className="small grow">
+                  Сейчас: <b className="num">{liftLine(lift, ex.tracking)}</b>
+                </span>
+                <span className="xs muted">{lift.sessions} трен.</span>
+              </div>
+              {lift.next && <p className="hint-up small">Следующий раз: {lift.next.text}</p>}
+              {lift.points.length >= 2 && (
+                <LineChart
+                  label={`${ex.name}: ${ex.tracking === "time" ? "время" : lift.last.weight ? "рабочий вес" : "повторы"}`}
+                  unit={ex.tracking === "time" ? "с" : lift.last.weight ? "кг" : "повт."}
+                  series={[{ name: "Рабочий вес", color: "var(--accent)", points: lift.points.map((p) => ({ x: p.at, y: lift.last.weight ? p.weight : p.best })) }]}
+                />
+              )}
+            </div>
+          )}
           {history.length ? (
             <div className="list">
               {history.map((h) => (

@@ -60,11 +60,14 @@ const fakeClaude = () => {
     use: async (name) => {
       if (name === "db") return { doc: mkDoc, collection: mkCol };
       if (name === "user") return { id: async () => "u_test" };
+      if (name === "downloads") return { save: async ({ filename, data }) => ((window.__downloads ??= []).push({ filename, data: String(data) }), { status: "saved" }) };
       if (name === "sample") {
         // Имитация Claude: заготовленные ответы для фото тренажёра и тренировки по запросу.
         const fn = async () => ({ text: "" });
         fn.json = async (input, opts) => {
           window.__sampleCalls = (window.__sampleCalls ?? 0) + 1;
+          if (String(input).includes("калорийность"))
+            return { title: "Плов и салат", uncertainty: 0.2, items: [{ name: "Плов", grams: 300, kcal100: 180, p100: 6, f100: 8, c100: 22 }, { name: "Салат из огурцов", grams: 150, kcal100: 40, p100: 1, f100: 3, c100: 3 }] };
           if (opts?.images?.length)
             return {
               machine: "Тренажёр для жима ногами",
@@ -273,7 +276,7 @@ try {
 
   // ── Прогресс и библиотека ──
   await page.getByRole("button", { name: "Прогресс" }).click();
-  const histCount = await page.locator(".list-item .title.ellipsis").count();
+  const histCount = await page.locator(".history-list .list-item").count();
   check("история: 2 тренировки", histCount === 2, String(histCount));
   await shot(page, "06-progress");
   await page.getByRole("button", { name: "Тренировки" }).click();
@@ -408,6 +411,118 @@ try {
   await page.goBack();
   await page.waitForTimeout(400);
 
+  // ══ Этапы 3–5 ══
+  // ── Вода, самочувствие, облегчённая тренировка ──
+  await page.getByRole("button", { name: "Сегодня" }).click();
+  check("рекомендации на главном", await page.getByRole("region", { name: "Рекомендации" }).isVisible());
+  await page.getByRole("region", { name: "Вода" }).getByRole("button", { name: "+300" }).click();
+  check("вода: +300 мл", /0,3/.test(await page.getByRole("region", { name: "Вода" }).textContent()));
+  await page.getByRole("region", { name: "Самочувствие" }).getByRole("button", { name: "Отметить" }).click();
+  for (const g of ["Энергия", "Мышцы", "Настроение", "Стресс"]) await page.getByRole("radiogroup", { name: g }).getByRole("radio", { name: "2" }).click();
+  await page.fill("#sleep-bed", "02:00");
+  await page.fill("#sleep-wake", "07:30");
+  await page.locator(".sheet").getByRole("button", { name: "Сохранить" }).click();
+  const readyText = await page.getByRole("region", { name: "Самочувствие" }).textContent();
+  check("готовность посчитана и есть совет", /готовность/i.test(readyText) && /Облегчить тренировку|Мобильность/.test(readyText), readyText.slice(0, 80));
+  await shot(page, "14-today-wellness");
+  await page.getByRole("button", { name: "Облегчить тренировку" }).click();
+  await page.getByText("План тренировки").waitFor();
+  check("облегчённая тренировка", (await page.inputValue("#draft-title")).includes("облегчённая"));
+  check("профилактика ещё не в разминке", (await page.getByText("Скольжения руками по стене").count()) === 0);
+  await page.goBack();
+  await page.waitForTimeout(400);
+
+  // ── Питание ──
+  await page.getByRole("button", { name: "Питание" }).click();
+  check("питание: просит заполнить профиль для нормы", await page.getByText(/Чтобы посчитать норму/).isVisible());
+  await page.getByRole("button", { name: "Описать словами" }).click();
+  await page.fill("#food-text", "тарелка плова и салат");
+  await page.getByRole("button", { name: "Оценить калории" }).click();
+  await page.getByRole("button", { name: "Больше: Плов" }).waitFor();
+  const kcal1 = Number((await page.locator(".big-number").textContent()).replace(/\D/g, ""));
+  check("еда: оценка с диапазоном", kcal1 === Math.round(540 + 60) && (await page.getByText(/480–720/).count()) === 1, String(kcal1));
+  await page.getByRole("button", { name: "Больше: Плов" }).click();
+  const kcal2 = Number((await page.locator(".big-number").textContent()).replace(/\D/g, ""));
+  check("еда: граммы меняются — калории пересчитываются", kcal2 === kcal1 + 45, `${kcal1} → ${kcal2}`);
+  await shot(page, "15-meal");
+  await page.getByRole("button", { name: "Сохранить как блюдо" }).click();
+  await page.goBack();
+  await page.waitForTimeout(400);
+  await page.getByRole("button", { name: "Сохранённые" }).click();
+  await page.getByRole("button", { name: "Добавить" }).first().click();
+  await page.getByRole("button", { name: "Больше: Плов" }).waitFor();
+  await page.goBack();
+  await page.waitForTimeout(400);
+  check("сохранённое блюдо добавлено вторым приёмом", (await page.getByRole("button", { name: /Плов и салат/ }).count()) === 2);
+  // Заполняем профиль — появляется норма.
+  await page.getByRole("button", { name: "Профиль" }).click();
+  await page.getByRole("button", { name: /Тело и опыт/ }).click();
+  await page.getByRole("radiogroup").first().waitFor();
+  await page.locator("#sex").getByRole("radio", { name: "М" }).click();
+  await page.fill("#birthYear", "2000");
+  await page.locator("#birthYear").blur();
+  await page.getByRole("button", { name: "Сохранить" }).first().click();
+  await page.getByRole("button", { name: "Питание" }).click();
+  const summary = await page.getByRole("region", { name: "Питание за день" }).textContent();
+  check("норма калорий и белка посчитана", /\/ \d{4} ккал/.test(summary) && /\/ 158/.test(summary), summary.slice(0, 90));
+  await shot(page, "16-nutrition");
+
+  // ── Замеры, рабочие веса, неделя ──
+  await page.getByRole("button", { name: "Прогресс" }).click();
+  check("рабочие веса в прогрессе", /Жим штанги лёжа[\s\S]*72,5 кг × 6/.test(await page.locator("main, .app").first().textContent()));
+  await page.getByRole("button", { name: "Тело и замеры" }).click();
+  await page.fill("#body-weightKg", "79");
+  await page.fill("#body-armL", "36,5");
+  await page.fill("#body-armR", "35");
+  await page.locator("#body-armR").blur();
+  await page.getByRole("button", { name: "Сохранить" }).click();
+  await page.getByText(/Разница Л − П/).waitFor();
+  check("замеры: разница рук Л − П", /\+1,5 см/.test(await page.getByText(/Разница Л − П/).textContent()));
+  await shot(page, "17-body");
+  await page.goBack();
+  await page.waitForTimeout(400);
+  await page.getByRole("button", { name: "Неделя" }).click();
+  const weekText = await page.locator(".app").textContent();
+  check("неделя: тренировки, сон, вода, питание", /2\s*тренировки/.test(weekText) && /5,5 ч/.test(weekText) && /300 мл/.test(weekText) && /ккал/.test(weekText), weekText.slice(0, 60));
+  await shot(page, "18-week");
+  await page.goBack();
+  await page.waitForTimeout(400);
+  await page.getByRole("button", { name: /Жим штанги лёжа/ }).first().click();
+  check("график рабочего веса в упражнении", await page.getByRole("img", { name: /Жим штанги лёжа: рабочий вес/ }).isVisible());
+  await page.getByRole("img", { name: /Жим штанги лёжа: рабочий вес/ }).scrollIntoViewIfNeeded();
+  await page.getByRole("img", { name: /Жим штанги лёжа: рабочий вес/ }).click();
+  await shot(page, "19-lift");
+  await page.goBack();
+  await page.waitForTimeout(400);
+
+  // ── Профилактика в разминку ──
+  await page.getByRole("button", { name: "Тренировки" }).click();
+  await page.getByRole("button", { name: "Профилактика" }).click();
+  await page.getByRole("region", { name: /Щелчки или дискомфорт в плече/ }).getByRole("button", { name: "В разминку тренировок" }).click();
+  await shot(page, "20-prehab");
+  await page.getByRole("button", { name: "Сегодня" }).click();
+  await page.getByRole("button", { name: "К тренировке" }).click();
+  await page.getByText("План тренировки").waitFor();
+  check("профилактика плеча добавлена в разминку", (await page.getByText("Скольжения руками по стене").count()) === 1);
+  await page.goBack();
+  await page.waitForTimeout(400);
+
+  // ── Напоминания и CSV ──
+  await page.getByRole("button", { name: "Профиль" }).click();
+  await page.getByRole("button", { name: /Напоминания/ }).click();
+  await page.locator("#rem-water").getByRole("radio", { name: "Выкл" }).click();
+  await page.goBack();
+  await page.waitForTimeout(400);
+  check("напоминание о воде выключено", /Напоминания[\s\S]*тренировка после/.test(await page.locator(".app").textContent()) && !/вода раз в/.test(await page.locator(".app").textContent()));
+  await page.getByRole("button", { name: /Данные и синхронизация/ }).click();
+  await page.getByRole("button", { name: "Тренировки CSV" }).click();
+  await page.getByRole("button", { name: "Дневник CSV" }).click();
+  await page.waitForTimeout(300);
+  const files = await page.evaluate(() => window.__downloads ?? []);
+  check("CSV: тренировки и дневник", files.length === 2 && files[0].data.includes("Жим штанги лёжа") && files[1].data.includes("Вода, мл") && files[1].data.includes(";79;"), files.map((f) => f.filename).join(", "));
+  await page.goBack();
+  await page.waitForTimeout(400);
+
   // ── Синхронизация ──
   await page.waitForTimeout(2500);
   // Удалённые тренировки хранятся в облаке как «надгробия», чтобы удаление дошло до других устройств.
@@ -420,8 +535,10 @@ try {
   await second.page.goto(URL);
   await second.page.getByRole("button", { name: "Прогресс" }).waitFor({ timeout: 8000 });
   await second.page.getByRole("button", { name: "Прогресс" }).click();
-  const restored = await second.page.locator(".list-item .title.ellipsis").count();
+  const restored = await second.page.locator(".history-list .list-item").count();
   check("восстановление из облака на чистом устройстве", restored === 2, String(restored));
+  await second.page.getByRole("button", { name: "Питание" }).click();
+  check("дневник (еда) восстановлен из облака", (await second.page.getByRole("button", { name: /Плов и салат/ }).count()) === 2);
   await second.ctx.close();
 
   // Без облака приложение работает локально.

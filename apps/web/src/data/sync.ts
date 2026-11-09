@@ -3,13 +3,14 @@
 // Пути (только владелец данных может их читать — `data/users/<id>/` приватен на уровне платформы):
 //   data/users/<uid>/fitness                 — документ: профиль, активная программа (meta)
 //   data/users/<uid>/fitness/sessions/<id>   — по документу на тренировку (с упражнениями и подходами)
-//   data/users/<uid>/fitness/programs/<id>   — свои программы (этап 2)
+//   data/users/<uid>/fitness/programs/<id>   — свои программы
+//   data/users/<uid>/fitness/days/<YYYY-MM-DD> — дневник дня: вода, сон, чек-ин, замеры, питание
 //
 // Правило конфликтов: побеждает запись с бо́льшим updatedAt (last-writer-wins). Пользователь один,
 // одновременные правки с двух устройств редки.
 import { capability, type CollectionRef, type Db, type DbError, type DocRef, type DocSnap, type UserCap } from "./runtime";
 import { ackOutbox, applyRemote, finishBootstrap, getEntity, getState, outboxEntries, requeue, setLocalChangeHandler, setSyncStatus, type EntityKind, type OutboxEntry } from "./store";
-import { isMeta, isProgram, isSession } from "./validate";
+import { isDay, isMeta, isProgram, isSession } from "./validate";
 import { idb } from "./idb";
 
 const PAGE = 300;
@@ -18,6 +19,7 @@ const FLUSH_DELAY = 1500;
 let root: DocRef | null = null;
 let sessionsCol: CollectionRef | null = null;
 let programsCol: CollectionRef | null = null;
+let daysCol: CollectionRef | null = null;
 let flushTimer: ReturnType<typeof setTimeout> | null = null;
 let flushing = false;
 let pulling = false;
@@ -48,6 +50,7 @@ export async function startSync(): Promise<void> {
     root = db.doc(`data/users/${uid}/fitness`);
     sessionsCol = root.collection("sessions");
     programsCol = root.collection("programs");
+    daysCol = root.collection("days");
   } catch {
     setSyncStatus({ mode: "error", message: "Не удалось открыть облачное хранилище" });
     finishBootstrap();
@@ -88,7 +91,7 @@ async function readAll(col: CollectionRef, since: number): Promise<DocSnap[]> {
 }
 
 async function pull(): Promise<void> {
-  if (!root || !sessionsCol || !programsCol || pulling) return;
+  if (!root || !sessionsCol || !programsCol || !daysCol || pulling) return;
   pulling = true;
   setSyncStatus({ mode: "connecting" });
   try {
@@ -108,10 +111,11 @@ async function pull(): Promise<void> {
       await requeue("meta", "meta");
     }
 
-    const remoteIds = { session: new Set<string>(), program: new Set<string>() };
+    const remoteIds = { session: new Set<string>(), program: new Set<string>(), day: new Set<string>() };
     for (const [kind, col, guard] of [
       ["session", sessionsCol, isSession],
       ["program", programsCol, isProgram],
+      ["day", daysCol, isDay],
     ] as const) {
       const docs = await readAll(col, since);
       for (const d of docs) {
@@ -131,6 +135,7 @@ async function pull(): Promise<void> {
       const st = getState();
       for (const s of Object.values(st.sessions)) if (!remoteIds.session.has(s.id)) await requeue("session", s.id);
       for (const p of Object.values(st.programs)) if (!remoteIds.program.has(p.id)) await requeue("program", p.id);
+      for (const d of Object.values(st.days)) if (!remoteIds.day.has(d.id)) await requeue("day", d.id);
     }
 
     // Не даём метке уйти в будущее, если часы другого устройства спешат.
@@ -145,8 +150,9 @@ async function pull(): Promise<void> {
 }
 
 function refFor(entry: OutboxEntry): DocRef | null {
-  if (!root || !sessionsCol || !programsCol) return null;
+  if (!root || !sessionsCol || !programsCol || !daysCol) return null;
   if (entry.kind === "meta") return root;
+  if (entry.kind === "day") return daysCol.doc(entry.id);
   return (entry.kind === "session" ? sessionsCol : programsCol).doc(entry.id);
 }
 

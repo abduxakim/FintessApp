@@ -13,6 +13,9 @@ import { Icon } from "../../ui/icons";
 import { ZONES } from "../../data/seed/labels";
 import { pickVariant, programCycle } from "../../domain/session";
 import { effectiveDay } from "../../domain/tweaks";
+import { ReadinessCard, WaterCard } from "../wellness/Wellness";
+import { NutritionSummary } from "../nutrition/Nutrition";
+import { Recommendations } from "./Recommendations";
 import { emphasisLine, emphasisOf } from "../../domain/emphasis";
 import { updateMeta } from "../../data/store";
 
@@ -152,6 +155,13 @@ export function Today() {
         </div>
       )}
 
+      <Recommendations day={day} cycle={cycle} load={load} />
+      <ReadinessCard />
+      <div className="grid-2 cards-2">
+        <WaterCard />
+        <NutritionSummary compact />
+      </div>
+
       <section className="section">
         <div className="section-head">
           <h2>Эта неделя</h2>
@@ -262,11 +272,15 @@ export function Today() {
       </section>
 
       {zones.length > 0 && (
-        <p className="small muted">
-          {zones.map((z) => ZONES[z.zone] + (z.side === "left" ? " (левое)" : z.side === "right" ? " (правое)" : "")).join(", ")}: в разминке каждой зальной программы есть блок активации. При боли — к специалисту.
-        </p>
+        <button className="list-item card tight" style={{ flexDirection: "row" }} onClick={() => nav.push({ name: "prehab" })}>
+          <Icon name="shield" className="chev" />
+          <div className="grow">
+            <div className="title">Профилактика: {zones.map((z) => ZONES[z.zone].toLowerCase() + (z.side === "left" ? " (левое)" : z.side === "right" ? " (правое)" : "")).join(", ")}</div>
+            <div className="sub">{state.meta.profile.prehabIssue ? "Блок добавлен в разминку тренировок" : "Подборка упражнений — можно добавить в разминку"}</div>
+          </div>
+          <Icon name="chev" className="chev" />
+        </button>
       )}
-      <p className="xs muted">Вода, сон, восстановление и питание появятся на следующих этапах.</p>
     </div>
   );
 }

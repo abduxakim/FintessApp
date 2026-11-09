@@ -1223,3 +1223,73 @@ button.step:active {
   text-align: right;
   color: var(--fg-2);
 }
+/* Графики: одна ось, тонкие линии, бледная сетка. Цвета двух серий проверены валидатором на тёмном фоне. */
+:root {
+  --series-1: #bf830f;
+  --series-2: #4a8fd4;
+}
+.chart {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.chart svg {
+  width: 100%;
+  height: auto;
+  touch-action: pan-y;
+  display: block;
+}
+.chart-grid {
+  stroke: var(--line);
+  stroke-width: 1;
+}
+.chart-cross {
+  stroke: var(--muted);
+  stroke-width: 1;
+}
+.chart-axis {
+  fill: var(--muted);
+  font-size: 10px;
+  font-family: var(--font-num);
+}
+.chart-value {
+  fill: var(--fg);
+  font-size: 11px;
+  font-weight: 600;
+  font-family: var(--font-num);
+}
+.chart-ring {
+  stroke: var(--surface);
+  stroke-width: 2;
+}
+.chart-tip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font-size: var(--fs-s);
+  min-height: 1.5em;
+}
+.chart-legend {
+  display: flex;
+  gap: 14px;
+  font-size: var(--fs-xs);
+  color: var(--fg-2);
+}
+.chart-legend i {
+  display: inline-block;
+  width: 12px;
+  height: 3px;
+  border-radius: 2px;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+/* Две карточки рядом на «Сегодня»: на узком экране — одна под другой. */
+.cards-2 {
+  align-items: stretch;
+}
+@media (max-width: 420px) {
+  .cards-2 {
+    grid-template-columns: 1fr;
+  }
+}

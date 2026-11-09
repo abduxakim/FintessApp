@@ -8,7 +8,8 @@ import { setDraftRemember, updateDraft, updateDraftExercise, useDraft } from "..
 import { addSet, makeSessionExercise, moveItem, swapExercise } from "../../domain/session";
 import { alternatives, isAvailable } from "../../domain/availability";
 import { exerciseForGroup, groupLoad, underloaded } from "../../domain/balance";
-import { fmtClock } from "../../domain/format";
+import { fmtClock, fmtKg } from "../../domain/format";
+import { liftSummaries } from "../../domain/lifts";
 import { MUSCLES } from "../../data/seed/labels";
 import { emphasisOf } from "../../domain/emphasis";
 import { EmphasisCard } from "../../ui/EmphasisCard";
@@ -52,6 +53,7 @@ export function Preview() {
   const profile = state.meta.profile;
   const loc = profile.locations[0] ?? "gym";
   const load = useMemo(() => groupLoad(liveSessions(state), EXERCISE_BY_ID, profile), [state, profile]);
+  const lifts = useMemo(() => new Map(liftSummaries(liveSessions(state), EXERCISE_BY_ID).map((l) => [l.exerciseId, l])), [state]);
 
   if (!draft) {
     return (
@@ -148,6 +150,18 @@ export function Preview() {
                     {BLOCK_LABEL[e.block] ? ` · ${BLOCK_LABEL[e.block]}` : ""}
                   </button>
                   {e.carried && <span className="xs" style={{ color: "var(--accent)" }}>добиваем с прошлой</span>}
+                  {(() => {
+                    const l = lifts.get(e.exerciseId);
+                    if (!l?.next || e.block !== "main") return null;
+                    const w = e.sets[0]?.weight;
+                    if (l.next.kind === "increase")
+                      return (
+                        <span className="xs hint-up">
+                          {w === l.next.weight ? `▲ новый вес ${fmtKg(w)} кг (было ${fmtKg(l.last.weight)})` : `можно ${fmtKg(l.next.weight)} кг — вес оставлен из-за проблемной зоны`}
+                        </span>
+                      );
+                    return l.last.weight ? <span className="xs muted">прошлый раз {fmtKg(l.last.weight)} кг × {l.last.reps}</span> : null;
+                  })()}
                   {e.swappedFromId && <span className="xs muted">вместо «{EXERCISE_BY_ID[e.swappedFromId]?.name}»</span>}
                   {!e.circuit && (
                     <div className="row">

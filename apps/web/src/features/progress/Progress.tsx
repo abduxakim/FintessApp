@@ -11,6 +11,7 @@ import { sessionDoneSets, sessionVolume } from "../../domain/strength";
 import { Confirm, TopBar, toast } from "../../ui/kit";
 import { Icon } from "../../ui/icons";
 import { fmtRecord, fmtSets, RECORD_LABEL } from "./shared";
+import { LiftList } from "./Lifts";
 import type { RecordKind } from "../../domain/history";
 
 export function ProgressHome() {
@@ -47,6 +48,25 @@ export function ProgressHome() {
           </div>
         </div>
 
+        <div className="grid-2">
+          <button className="btn" onClick={() => nav.push({ name: "week" })}>
+            <Icon name="chart" size={18} /> Неделя
+          </button>
+          <button className="btn" onClick={() => nav.push({ name: "body" })}>
+            <Icon name="user" size={18} /> Тело и замеры
+          </button>
+        </div>
+
+        <section className="section">
+          <div className="section-head">
+            <h2>Рабочие веса</h2>
+            <button className="btn small ghost" onClick={() => nav.push({ name: "lifts" })}>
+              Все
+            </button>
+          </div>
+          <LiftList limit={5} />
+        </section>
+
         <button className="list-item card tight" style={{ flexDirection: "row" }} onClick={() => nav.push({ name: "records" })}>
           <Icon name="trophy" className="chev" />
           <div className="grow">
@@ -56,6 +76,9 @@ export function ProgressHome() {
           <Icon name="chev" className="chev" />
         </button>
 
+        <div className="section-head">
+          <h2>История</h2>
+        </div>
         {!sessions.length && (
           <div className="empty">
             <b>История пока пуста</b>
@@ -71,7 +94,7 @@ export function ProgressHome() {
                 {list.length} {plural(list.length, ["тренировка", "тренировки", "тренировок"])}
               </span>
             </div>
-            <div className="list">
+            <div className="list history-list">
               {list.map((s) => (
                 <button key={s.id} className="list-item" onClick={() => nav.push({ name: "session", id: s.id })}>
                   <div className="stack gap-s" style={{ width: 52 }}>

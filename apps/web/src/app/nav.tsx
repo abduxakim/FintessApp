@@ -10,11 +10,17 @@ export type Route =
   | { name: "exercise"; id: string }
   | { name: "session"; id: string }
   | { name: "records" }
-  | { name: "profile-edit"; section: "body" | "goal" | "place" | "health" | "baselines" | "circuit" }
+  | { name: "profile-edit"; section: "body" | "goal" | "place" | "health" | "baselines" | "circuit" | "reminders" }
   | { name: "preview" }
   | { name: "program-edit"; id: string }
   | { name: "ask" }
   | { name: "photo" }
+  | { name: "lifts" }
+  | { name: "body" }
+  | { name: "week" }
+  | { name: "prehab" }
+  | { name: "food-add"; mode: "photo" | "text" | "saved" | "manual" }
+  | { name: "meal"; date: string; id: string }
   | { name: "data" }
   | { name: "about" };
 

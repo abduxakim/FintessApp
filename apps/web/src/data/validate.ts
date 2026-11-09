@@ -1,6 +1,6 @@
 // Проверка формы данных, приходящих извне: из облака и из файла импорта.
 // Не доверяем структуре — некорректные записи отбрасываются, а не ломают приложение.
-import type { ExportFile, Program, UserMeta, WorkoutSession } from "./types";
+import type { DayLog, ExportFile, Program, UserMeta, WorkoutSession } from "./types";
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const isStr = (v: unknown, max = 200): v is string => typeof v === "string" && v.length <= max;
@@ -62,10 +62,29 @@ export function isMeta(v: unknown): v is UserMeta {
   return isObj(p.equipment) && Array.isArray(p.locations) && Array.isArray(p.problemZones) && Array.isArray(p.focusMuscles);
 }
 
+const inRange = (v: unknown, min: number, max: number) => typeof v === "number" && Number.isFinite(v) && v >= min && v <= max;
+const optNum = (v: unknown, max: number) => v === null || v === undefined || inRange(v, 0, max);
+
+function isFood(v: unknown): boolean {
+  return isObj(v) && isStr(v.name, 120) && inRange(v.grams, 0, 5000) && inRange(v.kcal100, 0, 1000) && inRange(v.p100, 0, 100) && inRange(v.f100, 0, 100) && inRange(v.c100, 0, 100);
+}
+
+/** Дневник дня из облака или файла: проверяем каждую часть. */
+export function isDay(v: unknown): v is DayLog {
+  if (!isObj(v) || !isStr(v.id, 10) || !/^\d{4}-\d{2}-\d{2}$/.test(v.id) || !isNum(v.updatedAt)) return false;
+  if (!Array.isArray(v.water) || v.water.length > 200 || !v.water.every((w) => isObj(w) && isNum(w.at) && inRange(w.ml, 1, 3000))) return false;
+  if (v.sleep !== null && v.sleep !== undefined && !(isObj(v.sleep) && isStr(v.sleep.bed, 5) && isStr(v.sleep.wake, 5) && inRange(v.sleep.hours, 0, 24) && inRange(v.sleep.quality, 1, 5))) return false;
+  if (v.checkin !== null && v.checkin !== undefined && !(isObj(v.checkin) && ["energy", "soreness", "mood", "stress"].every((k) => inRange((v.checkin as Record<string, unknown>)[k], 1, 5)))) return false;
+  if (v.body !== null && v.body !== undefined && !(isObj(v.body) && Object.values(v.body).every((x) => optNum(x, 500)))) return false;
+  if (!Array.isArray(v.meals) || v.meals.length > 40) return false;
+  return v.meals.every((m) => isObj(m) && isStr(m.id) && isNum(m.at) && isStr(m.title, 120) && Array.isArray(m.items) && m.items.length <= 30 && m.items.every(isFood) && inRange(m.uncertainty, 0, 1));
+}
+
 export interface ParsedImport {
   meta: UserMeta | null;
   sessions: WorkoutSession[];
   programs: Program[];
+  days: DayLog[];
   skipped: number;
 }
 
@@ -86,5 +105,7 @@ export function parseImport(text: string): ParsedImport {
   const sessions = sessionsRaw.filter(isSession);
   const programs = programsRaw.filter(isProgram);
   const meta = isMeta(file.meta) ? file.meta : null;
-  return { meta, sessions, programs, skipped: sessionsRaw.length - sessions.length + programsRaw.length - programs.length };
+  const daysRaw = Array.isArray(file.days) ? file.days : [];
+  const days = daysRaw.filter(isDay);
+  return { meta, sessions, programs, days, skipped: sessionsRaw.length - sessions.length + programsRaw.length - programs.length + daysRaw.length - days.length };
 }

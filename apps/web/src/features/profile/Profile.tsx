@@ -3,16 +3,18 @@ import type { Profile } from "../../data/types";
 import { programById } from "../../data/catalog";
 import { getState, resetLocal, updateMeta, useStore } from "../../data/store";
 import { syncNow } from "../../data/sync";
-import { exportToFile, importFromText } from "../../data/backup";
+import { exportCsv, exportToFile, importFromText } from "../../data/backup";
+import { defaultReminders } from "../../data/defaults";
+import type { Reminders } from "../../data/types";
 import { useNav } from "../../app/nav";
 import { GOALS, LEVELS, LOCATIONS, MUSCLES, ZONES } from "../../data/seed/labels";
-import { Confirm, MedicalNote, Note, TopBar, toast } from "../../ui/kit";
+import { Confirm, MedicalNote, Note, Segmented, TopBar, toast } from "../../ui/kit";
 import { Icon } from "../../ui/icons";
 import { BaselinesSection, BodySection, CircuitSection, GoalSection, HealthSection, PlaceSection } from "./forms";
 import { fmtShort, fmtTime } from "../../domain/format";
 
-type Section = "body" | "goal" | "place" | "health" | "baselines" | "circuit";
-const TITLES: Record<Section, string> = { body: "Тело и опыт", goal: "Цель и фокус", place: "Место и график", health: "Здоровье и баланс", baselines: "Базовые результаты", circuit: "Круг 5-10-15" };
+type Section = "body" | "goal" | "place" | "health" | "baselines" | "circuit" | "reminders";
+const TITLES: Record<Section, string> = { body: "Тело и опыт", goal: "Цель и фокус", place: "Место и график", health: "Здоровье и баланс", baselines: "Базовые результаты", circuit: "Круг 5-10-15", reminders: "Напоминания" };
 
 export function ProfileHome() {
   const nav = useNav();
@@ -26,6 +28,7 @@ export function ProfileHome() {
     { s: "place", sub: `${p.locations.map((l) => LOCATIONS[l]).join(", ")} · ${p.daysPerWeek}×/нед · ${p.sessionMin} мин` },
     { s: "health", sub: p.problemZones.length ? p.problemZones.map((z) => ZONES[z.zone]).join(", ") : "Нет проблемных зон" },
     { s: "baselines", sub: p.baselines.benchKg ? `Жим ${p.baselines.benchKg} кг × ${p.baselines.benchReps ?? "?"}` : "Не заполнено" },
+    { s: "reminders", sub: (() => { const r = state.meta.reminders; return r ? [r.waterEveryMin ? `вода раз в ${r.waterEveryMin / 60} ч` : null, r.workoutGapDays ? `тренировка после ${r.workoutGapDays} дн. перерыва` : null, r.checkin ? "чек-ин утром" : null].filter(Boolean).join(" · ") || "Выключены" : "Выключены"; })() },
     { s: "circuit", sub: p.circuit.enabled ? `${p.circuit.position === "start" ? "После разминки" : "В конце"} · ${p.circuit.stations.map((x) => x.reps).join("-")}` : "Выключен" },
   ];
   return (
@@ -81,6 +84,47 @@ export function syncLabel(mode: string, pending: number): string {
 }
 
 export function ProfileEdit({ section }: { section: Section }) {
+  if (section === "reminders") return <RemindersEdit />;
+  return <ProfileEditInner section={section} />;
+}
+
+function RemindersEdit() {
+  const nav = useNav();
+  const r = useStore((s) => s.meta.reminders) ?? defaultReminders();
+  const set = (patch: Partial<Reminders>) => updateMeta((m) => ({ ...m, reminders: { ...defaultReminders(), ...m.reminders, ...patch } }));
+  return (
+    <>
+      <TopBar title="Напоминания" onBack={nav.back} />
+      <div className="screen">
+        <Note>Приложение работает внутри Claude и не может присылать push-уведомления. Напоминания показываются на экране «Сегодня», когда открываешь приложение. Для точного времени поставь будильник в телефоне.</Note>
+        <div className="field">
+          <span className="label">Вода: напомнить, если не пил дольше</span>
+          <Segmented id="rem-water" value={r.waterEveryMin ?? 0} onChange={(v) => set({ waterEveryMin: v || null })} options={[{ value: 0, label: "Выкл" }, { value: 60, label: "1 ч" }, { value: 90, label: "1,5 ч" }, { value: 120, label: "2 ч" }, { value: 180, label: "3 ч" }]} />
+        </div>
+        <div className="grid-2">
+          <div className="field">
+            <label htmlFor="rem-from">Активно с</label>
+            <input id="rem-from" type="time" className="input num" value={r.activeFrom} onChange={(e) => e.target.value && set({ activeFrom: e.target.value })} />
+          </div>
+          <div className="field">
+            <label htmlFor="rem-to">до</label>
+            <input id="rem-to" type="time" className="input num" value={r.activeTo} onChange={(e) => e.target.value && set({ activeTo: e.target.value })} />
+          </div>
+        </div>
+        <div className="field">
+          <span className="label">Тренировка: напомнить, если перерыв</span>
+          <Segmented id="rem-gap" value={r.workoutGapDays ?? 0} onChange={(v) => set({ workoutGapDays: v || null })} options={[{ value: 0, label: "Выкл" }, { value: 3, label: "3 дн" }, { value: 4, label: "4 дн" }, { value: 5, label: "5 дн" }, { value: 7, label: "7 дн" }]} />
+        </div>
+        <label className="row">
+          <input type="checkbox" checked={r.checkin} onChange={(e) => set({ checkin: e.target.checked })} />
+          Утром напоминать отметить самочувствие и сон
+        </label>
+      </div>
+    </>
+  );
+}
+
+function ProfileEditInner({ section }: { section: Exclude<Section, "reminders"> }) {
   const nav = useNav();
   const [p, setP] = useState<Profile>(() => getState().meta.profile);
   // Актуальный профиль для обработчиков: значения, зафиксированные на blur, не должны теряться.
@@ -188,6 +232,15 @@ export function DataScreen() {
           <div className="section-head">
             <h2>Резервная копия</h2>
           </div>
+          <div className="grid-2">
+            <button className="btn" onClick={() => exportCsv("workouts").then((r) => toast(r === "saved" ? "Файл сохранён" : r === "declined" ? "Сохранение отменено" : "Сохранение файлов здесь недоступно"))}>
+              Тренировки CSV
+            </button>
+            <button className="btn" onClick={() => exportCsv("days").then((r) => toast(r === "saved" ? "Файл сохранён" : r === "declined" ? "Сохранение отменено" : "Сохранение файлов здесь недоступно"))}>
+              Дневник CSV
+            </button>
+          </div>
+          <p className="xs muted">CSV открывается в Excel и Google Таблицах: подходы по каждой тренировке; вода, сон, питание и замеры по дням.</p>
           <div className="grid-2">
             <button className="btn" onClick={onExport}>
               <Icon name="download" size={18} /> Экспорт

@@ -1,4 +1,4 @@
-import type { CircuitSettings, Profile, UserMeta } from "./types";
+import type { CircuitSettings, DayLog, Profile, Reminders, UserMeta } from "./types";
 import { EQUIPMENT_PRESETS } from "./seed/labels";
 
 export const SCHEMA_VERSION = 1;
@@ -37,6 +37,7 @@ export function defaultProfile(): Profile {
     problemZones: [],
     baselines: {},
     circuit: defaultCircuit(),
+    prehabIssue: null,
   };
 }
 
@@ -47,6 +48,8 @@ export function defaultMeta(now = Date.now()): UserMeta {
     profile: defaultProfile(),
     goalHistory: [],
     enrollment: null,
+    savedDishes: [],
+    reminders: defaultReminders(),
     createdAt: now,
     // 0 — профиль ещё не редактировался: любая облачная версия новее.
     updatedAt: 0,
@@ -68,5 +71,20 @@ export function normalizeMeta(m: UserMeta): UserMeta {
       baselines: { ...m.profile?.baselines },
       circuit: { ...base.profile.circuit, ...m.profile?.circuit },
     },
+    reminders: { ...defaultReminders(), ...m.reminders },
   };
+}
+
+export function defaultReminders(): Reminders {
+  return { waterEveryMin: 120, activeFrom: "09:00", activeTo: "22:00", workoutGapDays: 4, checkin: true };
+}
+
+export function emptyDay(id: string): DayLog {
+  return { id, water: [], sleep: null, checkin: null, body: null, meals: [], createdAt: Date.now(), updatedAt: 0, rev: 0, deletedAt: null };
+}
+
+/** Локальная дата «YYYY-MM-DD». */
+export function dayId(ms = Date.now()): string {
+  const d = new Date(ms);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }

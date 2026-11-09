@@ -231,6 +231,8 @@ export interface Profile {
   problemZones: ProblemZone[];
   baselines: Baselines;
   circuit: CircuitSettings;
+  /** Выбранный блок профилактики (id проблемы) — добавляется в разминку программных тренировок. */
+  prehabIssue?: string | null;
 }
 
 export interface Enrollment {
@@ -274,6 +276,9 @@ export interface UserMeta extends SyncFields {
   profile: Profile;
   goalHistory: GoalChange[];
   enrollment: Enrollment | null;
+  /** Сохранённые блюда для быстрого добавления. */
+  savedDishes?: SavedDish[];
+  reminders?: Reminders;
 }
 
 export type SetType = "warmup" | "work";
@@ -324,6 +329,96 @@ export interface WorkoutSession extends SyncFields {
   exercises: SessionExercise[];
 }
 
+// ── Дневник дня: вода, сон, самочувствие, замеры, питание (этапы 2–4) ──
+
+export interface WaterEntry {
+  at: Millis;
+  ml: number;
+}
+
+export interface SleepEntry {
+  /** «23:30» */
+  bed: string;
+  /** «07:10» */
+  wake: string;
+  hours: number;
+  /** 1 — плохо, 5 — отлично */
+  quality: number;
+}
+
+/** Ежедневный чек-ин: все шкалы 1–5, где 5 — лучше (бодрость, мышцы не болят, настроение, спокойствие). */
+export interface Checkin {
+  at: Millis;
+  energy: number;
+  soreness: number;
+  mood: number;
+  stress: number;
+}
+
+/** Замеры тела. Чувствительные данные: не уходят никуда, кроме личного хранилища. */
+export interface BodyEntry {
+  weightKg?: number | null;
+  waistCm?: number | null;
+  chestCm?: number | null;
+  armL?: number | null;
+  armR?: number | null;
+  forearmL?: number | null;
+  forearmR?: number | null;
+  thighL?: number | null;
+  thighR?: number | null;
+}
+
+export interface FoodItem {
+  name: string;
+  grams: number;
+  kcal100: number;
+  p100: number;
+  f100: number;
+  c100: number;
+}
+
+export type MealType = "breakfast" | "lunch" | "dinner" | "snack";
+
+export interface Meal {
+  id: ID;
+  at: Millis;
+  type: MealType;
+  title: string;
+  source: "photo" | "text" | "saved" | "manual";
+  items: FoodItem[];
+  /** Неопределённость оценки: 0.15 — ±15%. */
+  uncertainty: number;
+}
+
+export interface DayLog extends SyncFields {
+  /** Дата «YYYY-MM-DD» (локальная). */
+  id: string;
+  water: WaterEntry[];
+  sleep: SleepEntry | null;
+  checkin: Checkin | null;
+  body: BodyEntry | null;
+  meals: Meal[];
+}
+
+export interface SavedDish {
+  id: ID;
+  name: string;
+  items: FoodItem[];
+  uncertainty: number;
+  uses: number;
+}
+
+export interface Reminders {
+  /** Напоминать о воде, если не пил дольше N минут (в активные часы). null — выключено. */
+  waterEveryMin: number | null;
+  activeFrom: string;
+  activeTo: string;
+  /** Напоминать о тренировке, если её не было N дней. */
+  workoutGapDays: number | null;
+  /** Напоминать о чек-ине утром. */
+  checkin: boolean;
+}
+
 export interface ExportFile {
   app: "fitness-app";
   schemaVersion: number;
@@ -331,4 +426,5 @@ export interface ExportFile {
   meta: UserMeta | null;
   sessions: WorkoutSession[];
   programs: Program[];
+  days?: DayLog[];
 }

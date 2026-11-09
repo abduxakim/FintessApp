@@ -3,11 +3,11 @@
 // Чтение идёт только из памяти, поэтому интерфейс не ждёт сеть.
 import { useRef, useSyncExternalStore } from "react";
 import { idb } from "./idb";
-import { defaultMeta, normalizeMeta } from "./defaults";
+import { dayId, defaultMeta, emptyDay, normalizeMeta } from "./defaults";
 import { registerCustom } from "./custom";
-import type { Program, UserMeta, WorkoutSession } from "./types";
+import type { DayLog, Program, UserMeta, WorkoutSession } from "./types";
 
-export type EntityKind = "meta" | "session" | "program";
+export type EntityKind = "meta" | "session" | "program" | "day";
 
 export interface OutboxEntry {
   key: string;
@@ -33,6 +33,8 @@ export interface State {
   meta: UserMeta;
   sessions: Record<string, WorkoutSession>;
   programs: Record<string, Program>;
+  /** Дневник по датам «YYYY-MM-DD». */
+  days: Record<string, DayLog>;
   sync: SyncStatus;
 }
 
@@ -43,6 +45,7 @@ let state: State = {
   meta: defaultMeta(),
   sessions: {},
   programs: {},
+  days: {},
   sync: { mode: "connecting", pending: 0, lastSyncAt: null, message: null },
 };
 
@@ -94,10 +97,11 @@ export function setLocalChangeHandler(fn: () => void) {
 
 export async function loadLocal(): Promise<void> {
   const available = await idb.available();
-  const [meta, sessions, programs, outboxList] = await Promise.all([
+  const [meta, sessions, programs, days, outboxList] = await Promise.all([
     idb.get<UserMeta>("meta", "meta"),
     idb.getAll<WorkoutSession>("sessions"),
     idb.getAll<Program>("programs"),
+    idb.getAll<DayLog>("days"),
     idb.getAll<OutboxEntry>("outbox"),
   ]);
   outbox.clear();
@@ -108,6 +112,7 @@ export async function loadLocal(): Promise<void> {
     meta: meta ? normalizeMeta(meta) : defaultMeta(),
     sessions: Object.fromEntries(sessions.map((s) => [s.id, s])),
     programs: Object.fromEntries(programs.map((p) => [p.id, p])),
+    days: Object.fromEntries(days.map((d) => [d.id, d])),
     sync: { ...state.sync, pending: outboxList.length },
   });
 }
@@ -156,10 +161,31 @@ export async function saveProgram(program: Program): Promise<void> {
   await enqueue("program", next.id, next.updatedAt!);
 }
 
+/** Изменить дневник дня (создаётся, если его ещё нет). */
+export async function updateDay(id: string, fn: (d: DayLog) => DayLog): Promise<void> {
+  const next = stamp(fn(state.days[id] ?? emptyDay(id)));
+  setState({ days: { ...state.days, [id]: next } });
+  await idb.put("days", next);
+  await enqueue("day", next.id, next.updatedAt);
+}
+
+export function today(s: State = state): DayLog {
+  const id = dayId();
+  return s.days[id] ?? emptyDay(id);
+}
+
 // ── Применение данных извне (облако, импорт) ───────────
 
 /** Принимает запись, если она новее локальной. Возвращает true, если локальная версия обновилась. */
-export async function applyRemote(kind: EntityKind, entity: UserMeta | WorkoutSession | Program): Promise<boolean> {
+export async function applyRemote(kind: EntityKind, entity: UserMeta | WorkoutSession | Program | DayLog): Promise<boolean> {
+  if (kind === "day") {
+    const d = entity as DayLog;
+    const local = state.days[d.id];
+    if (local && local.updatedAt >= d.updatedAt) return false;
+    setState({ days: { ...state.days, [d.id]: d } });
+    await idb.put("days", d);
+    return true;
+  }
   if (kind === "meta") {
     const m = entity as UserMeta;
     if (m.updatedAt <= state.meta.updatedAt) return false;
@@ -186,7 +212,7 @@ export async function applyRemote(kind: EntityKind, entity: UserMeta | WorkoutSe
 
 /** Ставит запись в очередь отправки без изменения (например, когда локальная версия новее облачной). */
 export async function requeue(kind: EntityKind, id: string): Promise<void> {
-  const e = kind === "meta" ? state.meta : kind === "session" ? state.sessions[id] : state.programs[id];
+  const e = getEntity(kind, id);
   if (!e) return;
   await enqueue(kind, id, e.updatedAt ?? 0);
 }
@@ -204,16 +230,17 @@ export async function ackOutbox(entry: OutboxEntry): Promise<void> {
   await idb.delete("outbox", entry.key);
 }
 
-export function getEntity(kind: EntityKind, id: string): UserMeta | WorkoutSession | Program | undefined {
+export function getEntity(kind: EntityKind, id: string): UserMeta | WorkoutSession | Program | DayLog | undefined {
   if (kind === "meta") return state.meta;
   if (kind === "session") return state.sessions[id];
+  if (kind === "day") return state.days[id];
   return state.programs[id];
 }
 
 export async function resetLocal(): Promise<void> {
-  await Promise.all((["meta", "sessions", "programs", "outbox", "kv"] as const).map((s) => idb.clear(s)));
+  await Promise.all((["meta", "sessions", "programs", "days", "outbox", "kv"] as const).map((s) => idb.clear(s)));
   outbox.clear();
-  setState({ meta: defaultMeta(), sessions: {}, programs: {}, sync: { ...state.sync, pending: 0 } });
+  setState({ meta: defaultMeta(), sessions: {}, programs: {}, days: {}, sync: { ...state.sync, pending: 0 } });
 }
 
 // ── Селекторы ──────────────────────────────────────────

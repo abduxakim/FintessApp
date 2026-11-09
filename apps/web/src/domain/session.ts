@@ -2,6 +2,7 @@ import type { ProgramTweaks, CarryItem, CircuitStation, Enrollment, Exercise, It
 import { alternatives, isAvailable, zoneCaution } from "./availability";
 import { overloadHint } from "./overload";
 import { effectiveDay } from "./tweaks";
+import { PREHAB_BY_ID, prehabSteps } from "../data/seed/prehab";
 import { lastPerformance } from "./history";
 import { e1rm, weightForReps } from "./strength";
 import { uuidv7 } from "./ids";
@@ -179,6 +180,20 @@ export function buildSessionFromProgram(args: {
     });
   }
   exercises.splice(firstMain(), 0, ...carried);
+
+  // Профилактика из профиля (например, плечо) — в конец разминки программных тренировок.
+  const issue = args.profile?.prehabIssue ? PREHAB_BY_ID[args.profile.prehabIssue] : undefined;
+  if (args.program.kind === "program" && issue) {
+    const items: SessionExercise[] = [];
+    for (const st of prehabSteps(issue)) {
+      const ex = args.exerciseById[st.exerciseId];
+      if (!ex || exercises.some((e) => e.exerciseId === ex.id)) continue;
+      items.push({
+        ...makeSessionExercise({ exercise: ex, block: "warmup", sets: st.sets, repsMin: st.reps?.[0] ?? null, repsMax: st.reps?.[1] ?? null, durationSec: st.sec ?? null, restSec: 20, note: "Профилактика", profile: args.profile, sessions: args.sessions }),
+      });
+    }
+    exercises.splice(firstMain(), 0, ...items);
+  }
 
   // Круговой блок из профиля — только в программных тренировках.
   const circuit = args.profile?.circuit;

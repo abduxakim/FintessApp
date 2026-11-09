@@ -16,6 +16,11 @@ import { Preview } from "../features/workouts/Preview";
 import { ProgramEditor } from "../features/workouts/ProgramEditor";
 import { AskScreen } from "../features/workouts/Ask";
 import { PhotoScreen } from "../features/workouts/Photo";
+import { PrehabScreen } from "../features/workouts/Prehab";
+import { LiftsScreen } from "../features/progress/Lifts";
+import { BodyScreen } from "../features/progress/Body";
+import { WeekScreen } from "../features/progress/Week";
+import { FoodAdd, MealEditor } from "../features/nutrition/Nutrition";
 import { WorkoutOverlay } from "../features/workout/Workout";
 import { ProgressHome, RecordsScreen, SessionDetail } from "../features/progress/Progress";
 import { NutritionHome } from "../features/nutrition/Nutrition";
@@ -44,6 +49,18 @@ function Screen() {
       return <AskScreen />;
     case "photo":
       return <PhotoScreen />;
+    case "prehab":
+      return <PrehabScreen />;
+    case "lifts":
+      return <LiftsScreen />;
+    case "body":
+      return <BodyScreen />;
+    case "week":
+      return <WeekScreen />;
+    case "food-add":
+      return <FoodAdd key={route.mode} mode={route.mode} />;
+    case "meal":
+      return <MealEditor key={route.id} date={route.date} id={route.id} />;
     case "library":
       return <Library />;
     case "exercise":
