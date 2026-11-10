@@ -3,7 +3,7 @@
 // Чтение идёт только из памяти, поэтому интерфейс не ждёт сеть.
 import { useRef, useSyncExternalStore } from "react";
 import { idb, STORES } from "./idb";
-import { dayId, defaultMeta, emptyDay, normalizeMeta } from "./defaults";
+import { dayId, defaultMeta, emptyDay, normalizeMeta, setDayEndHour } from "./defaults";
 import { registerCustom } from "./custom";
 import type { DayLog, Program, UserMeta, WorkoutSession } from "./types";
 import { EXERCISE_BY_ID } from "./seed/exercises";
@@ -63,6 +63,8 @@ export function getState(): State {
 function setState(patch: Partial<State>) {
   // Свои упражнения из профиля сразу попадают в каталог (в том числе пришедшие из облака).
   if (patch.meta?.customExercises) registerCustom(patch.meta.customExercises);
+  // Граница дня из настроек: от неё зависит, в какой день идут записи после полуночи.
+  if (patch.meta) setDayEndHour(patch.meta.reminders?.dayEndHour);
   state = { ...state, ...patch };
   listeners.forEach((l) => l());
 }

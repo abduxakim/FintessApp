@@ -4,7 +4,7 @@ import { liveSessions, useStore } from "../../data/store";
 import { useNav, useScreenState } from "../../app/nav";
 import { weekSummary } from "../../domain/weekly";
 import { dailyTargets } from "../../domain/nutrition";
-import { fmtDuration, fmtKg, fmtShort, fmtTonnage, plural } from "../../domain/format";
+import { fmtDuration, fmtKg, fmtMinutes, fmtShort, fmtTonnage, hhmm, plural } from "../../domain/format";
 import { TopBar } from "../../ui/kit";
 import { Icon } from "../../ui/icons";
 
@@ -70,8 +70,30 @@ export function WeekScreen() {
         <div className="list">
           <div className="list-item">
             <span className="grow">Сон</span>
-            <span className="num small">{w.sleepAvg != null ? `${fmtKg(Math.round(w.sleepAvg * 10) / 10)} ч в среднем · ${w.sleepDays} дн.` : "нет записей"}</span>
+            <span className="num small">{w.sleepAvg != null ? `${fmtKg(Math.round(w.sleepAvg * 10) / 10)} ч ночью в среднем · ${w.sleepDays} дн.` : "нет записей"}</span>
           </div>
+          {w.bedAvg != null && (
+            <>
+              <div className="list-item">
+                <span className="grow">Отбой в среднем</span>
+                <span className="num small">{hhmm(w.bedAvg)}</span>
+              </div>
+              <div className="list-item">
+                <span className="grow">Отбой после 01:00</span>
+                <span className="num small">
+                  {w.lateNights} из {w.sleepDays} {plural(w.sleepDays, ["ночи", "ночей", "ночей"])}
+                </span>
+              </div>
+            </>
+          )}
+          {w.napDays > 0 && (
+            <div className="list-item">
+              <span className="grow">Дневной сон</span>
+              <span className="num small">
+                {w.napDays} {plural(w.napDays, ["день", "дня", "дней"])} · всего {fmtMinutes(w.napMin)}
+              </span>
+            </div>
+          )}
           <div className="list-item">
             <span className="grow">Вода</span>
             <span className="num small">{w.waterAvg != null ? `${Math.round(w.waterAvg)} мл/день · ${pct(w.waterAvg, t?.water)}` : "нет записей"}</span>
@@ -95,6 +117,13 @@ export function WeekScreen() {
             </span>
           </div>
         </div>
+        {w.lateNights >= 3 && (
+          <p className="small dim">
+            {w.napDays >= 2
+              ? "Поздний отбой и дневной сон часто поддерживают друг друга: недоспал ночью — задремал днём — вечером не спится. Попробуй ограничить дневной сон 20–30 минутами до 16:00 и ложиться на 20–30 минут раньше каждые несколько дней."
+              : "Отбой часто после часа ночи. Если хочешь сдвинуть режим — ложись на 20–30 минут раньше каждые несколько дней, а не сразу на 2–3 часа."}
+          </p>
+        )}
         <p className="xs muted">Средние считаются по дням, где есть записи. Калории и белок — оценки по фото и описаниям.</p>
       </div>
     </>

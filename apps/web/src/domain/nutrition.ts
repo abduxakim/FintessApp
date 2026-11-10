@@ -93,6 +93,8 @@ export function waterTotal(d: DayLog | undefined): number {
 
 export function mealTypeByTime(ms: number): MealType {
   const h = new Date(ms).getHours();
+  // После полуночи до утра — ночной перекус, а не завтрак.
+  if (h < 5) return "snack";
   if (h < 11) return "breakfast";
   if (h < 16) return "lunch";
   if (h < 21) return "dinner";

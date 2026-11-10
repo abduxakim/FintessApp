@@ -81,6 +81,7 @@ export function sanitizeDay(v: unknown): DayLog | null {
   if (!isObj(v) || !isStr(v.id, 10) || !/^\d{4}-\d{2}-\d{2}$/.test(v.id) || !isNum(v.updatedAt)) return null;
   const water = (Array.isArray(v.water) ? v.water : []).filter((w) => isObj(w) && isNum(w.at) && inRange(w.ml, ...DAY.waterMl)).slice(0, DAY.water) as DayLog["water"];
   const sleep = isObj(v.sleep) && isStr(v.sleep.bed, 5) && isStr(v.sleep.wake, 5) && inRange(v.sleep.hours, 0, 24) && inRange(v.sleep.quality, 1, 5) ? (v.sleep as unknown as DayLog["sleep"]) : null;
+  const naps = (Array.isArray(v.naps) ? v.naps : []).filter((n) => isObj(n) && isNum(n.at) && inRange(n.min, ...DAY.napMin)).slice(0, DAY.naps) as NonNullable<DayLog["naps"]>;
   const checkin = isObj(v.checkin) && ["energy", "soreness", "mood", "stress"].every((k) => inRange((v.checkin as Record<string, unknown>)[k], 1, 5)) ? (v.checkin as unknown as DayLog["checkin"]) : null;
   const body = isObj(v.body) ? (Object.fromEntries(BODY_FIELDS.filter((f) => inRange((v.body as Record<string, unknown>)[f.key], 0.1, f.max)).map((f) => [f.key, (v.body as Record<string, unknown>)[f.key]])) as DayLog["body"]) : null;
   const meals = (Array.isArray(v.meals) ? v.meals : [])
@@ -97,6 +98,7 @@ export function sanitizeDay(v: unknown): DayLog | null {
     id: v.id,
     water,
     sleep,
+    ...(naps.length ? { naps } : {}),
     checkin,
     body: body && Object.keys(body).length ? body : null,
     meals,

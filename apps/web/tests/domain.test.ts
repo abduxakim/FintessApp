@@ -642,3 +642,54 @@ describe("исправления по ревью", () => {
     expect(r).toMatchObject({ waterEveryMin: 120, activeFrom: "09:00", workoutGapDays: null, checkin: true });
   });
 });
+
+import { dayId as dayOf, shiftDay, isLateNight } from "../src/data/defaults";
+import { napHint, napMinutes } from "../src/domain/recovery";
+import { mealTypeByTime } from "../src/domain/nutrition";
+import { sleepPattern } from "../src/domain/weekly";
+import { hhmm, fmtMinutes } from "../src/domain/format";
+
+describe("режим дня: граница дня и дневной сон", () => {
+  const at = (h: number, m = 0, d = 10) => new Date(2026, 10, d, h, m).getTime();
+  it("перекус после полуночи до границы дня — во вчерашний день", () => {
+    expect(dayOf(at(1, 30), 5)).toBe("2026-11-09");
+    expect(dayOf(at(4, 59), 5)).toBe("2026-11-09");
+    expect(dayOf(at(5, 0), 5)).toBe("2026-11-10");
+    expect(dayOf(at(1, 30), 0)).toBe("2026-11-10");
+    expect(isLateNight(at(2), 5)).toBe(true);
+    expect(isLateNight(at(12), 5)).toBe(false);
+    expect(shiftDay("2026-11-01", -1)).toBe("2026-10-31");
+    expect(shiftDay("2026-12-31", 1)).toBe("2027-01-01");
+  });
+  it("ночью — перекус, а не завтрак", () => {
+    expect(mealTypeByTime(at(1, 30))).toBe("snack");
+    expect(mealTypeByTime(at(8))).toBe("breakfast");
+  });
+  it("граница дня в настройках проверяется", () => {
+    expect(cleanReminders({ dayEndHour: 3 }).dayEndHour).toBe(3);
+    expect(cleanReminders({ dayEndHour: 9 }).dayEndHour).toBe(5);
+    expect(cleanReminders(null).dayEndHour).toBe(5);
+  });
+  it("дневной сон: проверка, готовность, подсказка", () => {
+    const d = sanitizeDay({ ...emptyDay("2026-11-10"), updatedAt: 1, naps: [{ at: at(14), min: 40 }, { at: at(15), min: 9999 }, { min: 20 }] })!;
+    expect(d.naps).toEqual([{ at: at(14), min: 40 }]);
+    expect(sanitizeDay({ ...emptyDay("2026-11-10"), updatedAt: 1 })!.naps).toBeUndefined();
+    expect(napMinutes(d)).toBe(40);
+    const night = { bed: "03:00", wake: "08:00", hours: 5, quality: 3 };
+    expect(readiness(null, night, 90)!.score).toBeGreaterThan(readiness(null, night)!.score);
+    // Больше 2 часов днём не добавляет готовности.
+    expect(readiness(null, night, 300)!.score).toBe(readiness(null, night, 120)!.score);
+    expect(napHint({ at: at(13, 20), min: 20 })).toBeNull();
+    expect(napHint({ at: at(16), min: 90 })).toMatch(/^Длинный/);
+    expect(napHint({ at: at(20), min: 30 })).toMatch(/^Вечерний/);
+  });
+  it("режим сна за неделю: средний отбой через полночь, поздние отбои, дневной сон", () => {
+    const day = (id: string, bed: string, naps: { at: number; min: number }[] = []) => ({ ...emptyDay(id), sleep: { bed, wake: "09:00", hours: 7, quality: 3 }, naps });
+    const p = sleepPattern([day("2026-11-09", "23:30"), day("2026-11-10", "02:30", [{ at: at(15), min: 60 }])]);
+    expect(hhmm(p.bedAvg!)).toBe("01:00");
+    expect(p.lateNights).toBe(1);
+    expect(p.napDays).toBe(1);
+    expect(fmtMinutes(p.napMin)).toBe("1 ч");
+    expect(fmtMinutes(90)).toBe("1 ч 30 мин");
+  });
+});

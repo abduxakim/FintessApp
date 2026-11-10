@@ -3,7 +3,7 @@
 import type { BodyEntry } from "./types";
 
 export const FOOD = { name: 80, grams: [1, 3000], kcal100: [0, 950], macro100: [0, 100], portionKcal: 5000, itemsPerMeal: 30 } as const;
-export const DAY = { water: 200, waterMl: [1, 3000], meals: 40, title: 60 } as const;
+export const DAY = { water: 200, waterMl: [1, 3000], meals: 40, title: 60, naps: 10, napMin: [5, 360], dayEndHour: [0, 6] } as const;
 export const DISH = { max: 60, name: 60 } as const;
 
 export const MEAL_TYPE_IDS = ["breakfast", "lunch", "dinner", "snack"] as const;

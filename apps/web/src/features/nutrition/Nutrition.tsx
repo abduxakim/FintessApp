@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { today, updateDay, updateMeta, useStore } from "../../data/store";
-import { dayId } from "../../data/defaults";
+import { dayEndHour, dayId, dayNoon, isLateNight, shiftDay } from "../../data/defaults";
 import { capability } from "../../data/runtime";
 import type { FoodItem, Meal, MealType } from "../../data/types";
 import { useNav, useScreenState } from "../../app/nav";
@@ -8,13 +8,24 @@ import { buildFoodPrompt, dailyTargets, dayTotals, itemTotals, MEAL_TYPES, mealT
 import { latestWeight } from "../../domain/weekly";
 import { compressImage } from "../../domain/photo";
 import { uuidv7 } from "../../domain/ids";
-import { fmtTime, parseNum } from "../../domain/format";
+import { fmtDay, fmtTime, parseNum } from "../../domain/format";
 import { Confirm, Note, Segmented, TopBar, toast } from "../../ui/kit";
 import { Icon } from "../../ui/icons";
 import { useTrainingToday } from "../wellness/Wellness";
-import { clamp, DAY, FOOD } from "../../data/limits";
+import { clamp, DAY, DISH, FOOD } from "../../data/limits";
 
 const r0 = (n: number) => Math.round(n);
+
+/** После полуночи до границы дня: объясняем, куда пойдёт запись. */
+export function NightNote() {
+  if (!isLateNight()) return null;
+  const end = `${String(dayEndHour()).padStart(2, "0")}:00`;
+  return (
+    <Note>
+      Сейчас ночь, а день считается до {end}: еда и вода до сна записываются во вчерашний день — {fmtDay(dayNoon(dayId())).toLowerCase()}. Если ты уже спал и это завтрак — перенеси приём на день позже в его карточке. Границу дня можно поменять в Профиль → Режим и напоминания.
+    </Note>
+  );
+}
 
 function Bar({ label, value, target, unit }: { label: string; value: number; target: number | null; unit: string }) {
   const pct = target ? Math.min(100, (value / target) * 100) : 0;
@@ -90,6 +101,7 @@ export function NutritionHome() {
     <>
       <TopBar title="Питание" />
       <div className="screen">
+        <NightNote />
         <NutritionSummary />
         {targets && <p className="xs muted">Норма — ориентир: {targets.basis}; белок по цели. {training ? "Сегодня тренировка — воды больше." : ""}</p>}
         <div className="grid-2">
@@ -224,6 +236,7 @@ export function FoodAdd({ mode }: { mode: "photo" | "text" | "saved" | "manual" 
     <>
       <TopBar title={titles[mode]} onBack={nav.back} />
       <div className="screen">
+        <NightNote />
         {(mode === "photo" || mode === "text") && (
           <>
             {mode === "photo" && (
@@ -334,6 +347,15 @@ export function MealEditor({ date, id }: { date: string; id: string }) {
   const totals = useMemo(() => (meal ? mealTotals(meal) : null), [meal]);
   if (!meal || !totals) return <TopBar title="Приём пищи не найден" onBack={nav.back} />;
   const upd = (fn: (m: Meal) => Meal) => updateDay(date, (d) => ({ ...d, meals: d.meals.map((m) => (m.id === id ? fn(m) : m)) }));
+  const lastDay = dayId();
+  // Перенос на соседний день: ночной перекус «после сна» или завтрак, записанный во вчера.
+  const move = async (delta: number) => {
+    const to = shiftDay(date, delta);
+    await updateDay(date, (d) => ({ ...d, meals: d.meals.filter((m) => m.id !== id) }));
+    await updateDay(to, (d) => ({ ...d, meals: [...d.meals.filter((m) => m.id !== id), meal] }));
+    toast(`Перенесено: ${fmtDay(dayNoon(to))}`);
+    nav.backThen(() => nav.push({ name: "meal", date: to, id }));
+  };
   const setItem = (i: number, patch: Partial<FoodItem>) => upd((m) => ({ ...m, items: m.items.map((x, j) => (j === i ? { ...x, ...patch } : x)) }));
   return (
     <>
@@ -349,6 +371,17 @@ export function MealEditor({ date, id }: { date: string; id: string }) {
             Белки {r0(totals.protein)} г · Жиры {r0(totals.fat)} г · Углеводы {r0(totals.carbs)} г
           </p>
           <p className="xs muted">Оценка ±{Math.round(meal.uncertainty * 100)}%. Поправь граммы — всё пересчитается.</p>
+        </div>
+        <div className="row">
+          <button className="icon-btn" aria-label="Перенести на день раньше" onClick={() => move(-1)}>
+            <Icon name="back" size={18} />
+          </button>
+          <span className="grow small" style={{ textAlign: "center" }}>
+            {date === lastDay ? "Сегодня" : fmtDay(dayNoon(date))} · {fmtTime(meal.at)}
+          </span>
+          <button className="icon-btn" aria-label="Перенести на день позже" disabled={date >= lastDay} onClick={() => move(1)}>
+            <Icon name="chev" size={18} />
+          </button>
         </div>
         <Segmented id="meal-type" value={meal.type} onChange={(v: MealType) => upd((m) => ({ ...m, type: v }))} options={(Object.keys(MEAL_TYPES) as MealType[]).map((k) => ({ value: k, label: MEAL_TYPES[k] }))} />
         <div className="list">
@@ -381,7 +414,7 @@ export function MealEditor({ date, id }: { date: string; id: string }) {
         <button
           className="btn block"
           onClick={async () => {
-            await updateMeta((m) => ({ ...m, savedDishes: [...(m.savedDishes ?? []).filter((d) => d.name !== meal.title), { id: uuidv7(), name: meal.title, items: meal.items, uncertainty: meal.uncertainty, uses: 0 }].slice(-60) }));
+            await updateMeta((m) => ({ ...m, savedDishes: [...(m.savedDishes ?? []).filter((d) => d.name !== meal.title), { id: uuidv7(), name: meal.title, items: meal.items, uncertainty: meal.uncertainty, uses: 0 }].slice(-DISH.max) }));
             toast("Блюдо сохранено");
           }}
         >

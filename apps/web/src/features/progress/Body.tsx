@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { today, updateDay, updateMeta, useStore } from "../../data/store";
 import type { BodyEntry, DayLog } from "../../data/types";
-import { dayId } from "../../data/defaults";
+import { dayId, dayNoon } from "../../data/defaults";
 import { useNav } from "../../app/nav";
 import { NumField, TopBar, toast } from "../../ui/kit";
 import { LineChart } from "../../ui/LineChart";
@@ -15,10 +15,7 @@ const PAIRS: { l: keyof BodyEntry; r: keyof BodyEntry; title: string; chart: str
   { l: "thighL", r: "thighR", title: "Бёдра: левое и правое", chart: "Объём бёдер слева и справа", short: "бедро", names: ["Левое", "Правое"] },
 ];
 
-const dayMs = (id: string) => {
-  const [y, m, d] = id.split("-").map(Number);
-  return new Date(y, m - 1, d, 12).getTime();
-};
+const dayMs = dayNoon;
 
 function series(days: DayLog[], key: keyof BodyEntry) {
   return days.filter((d) => d.body?.[key]).map((d) => ({ x: dayMs(d.id), y: d.body![key] as number }));

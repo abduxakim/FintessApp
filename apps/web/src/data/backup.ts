@@ -4,7 +4,7 @@ import { SCHEMA_VERSION } from "./defaults";
 import { parseImport } from "./validate";
 import { EXERCISE_BY_ID } from "./seed/exercises";
 import { dayTotals, waterTotal } from "../domain/nutrition";
-import { readiness } from "../domain/recovery";
+import { dayReadiness, napMinutes } from "../domain/recovery";
 import type { ExportFile } from "./types";
 import { BODY_FIELDS } from "./limits";
 
@@ -105,11 +105,11 @@ export function workoutsCsv(): string {
 
 export function daysCsv(): string {
   const s = getState();
-  const rows: unknown[][] = [["Дата", "Вода, мл", "Сон, ч", "Качество сна", "Готовность", "Ккал", "Белки", "Жиры", "Углеводы", ...BODY_FIELDS.map((f) => f.label)]];
+  const rows: unknown[][] = [["Дата", "Вода, мл", "Отбой", "Подъём", "Сон, ч", "Качество сна", "Дневной сон, мин", "Готовность", "Ккал", "Белки", "Жиры", "Углеводы", ...BODY_FIELDS.map((f) => f.label)]];
   for (const d of Object.values(s.days).sort((a, b) => a.id.localeCompare(b.id))) {
     const t = dayTotals(d);
     const food = d.meals.length ? [t.kcal, t.protein, t.fat, t.carbs] : [null, null, null, null];
-    rows.push([d.id, waterTotal(d) || null, d.sleep?.hours, d.sleep?.quality, readiness(d.checkin, d.sleep)?.score, ...food, ...BODY_FIELDS.map((f) => d.body?.[f.key])]);
+    rows.push([d.id, waterTotal(d) || null, d.sleep?.bed, d.sleep?.wake, d.sleep?.hours, d.sleep?.quality, napMinutes(d) || null, dayReadiness(d)?.score, ...food, ...BODY_FIELDS.map((f) => d.body?.[f.key])]);
   }
   return csv(rows);
 }

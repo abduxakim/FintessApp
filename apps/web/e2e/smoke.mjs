@@ -424,6 +424,14 @@ try {
   await page.locator(".sheet").getByRole("button", { name: "Сохранить" }).click();
   const readyText = await page.getByRole("region", { name: "Самочувствие" }).textContent();
   check("готовность посчитана и есть совет", /готовность/i.test(readyText) && /Облегчить тренировку|Мобильность/.test(readyText), readyText.slice(0, 80));
+  // Дневной сон: задремал на работе или после еды.
+  await page.getByRole("region", { name: "Самочувствие" }).getByRole("button", { name: "+ Дневной сон" }).click();
+  await page.getByRole("group", { name: "Сколько спал" }).getByRole("button", { name: "1 ч 30 мин" }).click();
+  check("дневной сон: подсказка про длинный сон", await page.locator(".sheet").getByText(/дневной сон часто мешает уснуть ночью/).isVisible());
+  await shot(page, "14a-nap");
+  await page.locator(".sheet").getByRole("button", { name: "Записать" }).click();
+  const napText = await page.getByRole("region", { name: "Самочувствие" }).textContent();
+  check("дневной сон добавлен к ночному", /ночью 5,5 ч \+ днём 1 ч 30 мин = 7 ч/.test(napText), napText.match(/Сон:[^.]*/)?.[0] ?? napText.slice(0, 80));
   await shot(page, "14-today-wellness");
   await page.getByRole("button", { name: "Облегчить тренировку" }).click();
   await page.getByText("План тренировки").waitFor();
@@ -493,6 +501,7 @@ try {
   await page.getByRole("button", { name: "Неделя" }).click();
   const weekText = await page.locator(".app").textContent();
   check("неделя: тренировки, сон, вода, питание", /2\s*тренировки/.test(weekText) && /5,5 ч/.test(weekText) && /300 мл/.test(weekText) && /ккал/.test(weekText), weekText.slice(0, 60));
+  check("неделя: отбой и дневной сон", /Отбой в среднем\s*02:00/.test(weekText) && /Отбой после 01:00\s*1 из 1 ночи/.test(weekText) && /Дневной сон\s*1 день · всего 1 ч 30 мин/.test(weekText));
   await shot(page, "18-week");
   await page.goBack();
   await page.waitForTimeout(400);
@@ -518,17 +527,21 @@ try {
 
   // ── Напоминания и CSV ──
   await page.getByRole("button", { name: "Профиль" }).click();
-  await page.getByRole("button", { name: /Напоминания/ }).click();
+  await page.getByRole("button", { name: /Режим и напоминания/ }).click();
   await page.locator("#rem-water").getByRole("radio", { name: "Выкл" }).click();
+  await page.locator("#rem-dayend").getByRole("radio", { name: "04:00" }).click();
+  await shot(page, "21-regime");
   await page.goBack();
   await page.waitForTimeout(400);
-  check("напоминание о воде выключено", /Напоминания[\s\S]*тренировка после/.test(await page.locator(".app").textContent()) && !/вода раз в/.test(await page.locator(".app").textContent()));
+  const profText = await page.locator(".app").textContent();
+  check("напоминание о воде выключено", /Режим и напоминания[\s\S]*тренировка после/.test(profText) && !/вода раз в/.test(profText));
+  check("граница дня изменена на 04:00", /день до 04:00/.test(profText));
   await page.getByRole("button", { name: /Данные и синхронизация/ }).click();
   await page.getByRole("button", { name: "Тренировки CSV" }).click();
   await page.getByRole("button", { name: "Дневник CSV" }).click();
   await page.waitForTimeout(300);
   const files = await page.evaluate(() => window.__downloads ?? []);
-  check("CSV: тренировки и дневник", files.length === 2 && files[0].data.includes("Жим штанги лёжа") && files[1].data.includes("Вода, мл") && files[1].data.includes(";79;"), files.map((f) => f.filename).join(", "));
+  check("CSV: тренировки и дневник", files.length === 2 && files[0].data.includes("Жим штанги лёжа") && files[1].data.includes("Вода, мл") && files[1].data.includes(";79;") && files[1].data.includes(";02:00;07:30;5,5;3;90;"), files.map((f) => f.filename).join(", "));
   await page.goBack();
   await page.waitForTimeout(400);
 
@@ -549,6 +562,36 @@ try {
   await second.page.getByRole("button", { name: "Питание" }).click();
   check("дневник (еда) восстановлен из облака", (await second.page.getByRole("button", { name: /Плов и салат/ }).count()) === 2);
   await second.ctx.close();
+
+  // Ночь, 01:30: перекус до сна идёт во вчерашний день; если уже спал — переносится на день.
+  const night = await newPage(true);
+  const t = new Date();
+  t.setHours(1, 30, 0, 0);
+  await night.page.clock.install({ time: t });
+  await night.page.goto(URL);
+  await night.page.getByRole("button", { name: "Питание" }).waitFor({ timeout: 8000 });
+  await night.page.getByRole("button", { name: "Питание" }).click();
+  await night.page.getByText(/день считается до 04:00/).waitFor({ timeout: 8000 });
+  check("ночью: подсказка, что еда идёт во вчерашний день (граница из облака)", true);
+  await shot(night.page, "22-night-food");
+  await night.page.getByRole("button", { name: "Вручную" }).click();
+  await night.page.fill("#m-name", "Творог");
+  await night.page.fill("#m-kcal", "200");
+  await night.page.getByRole("button", { name: "Добавить" }).click();
+  await night.page.getByRole("button", { name: "Перенести на день раньше" }).waitFor();
+  const mealType = await night.page.locator("#meal-type").getByRole("radio", { name: "Перекус" }).getAttribute("aria-checked");
+  check("ночной приём — перекус в текущем (вчерашнем) дне", mealType === "true" && (await night.page.getByText("Сегодня · 01:30").isVisible()));
+  check("на день позже нельзя — это последний день", await night.page.getByRole("button", { name: "Перенести на день позже" }).isDisabled());
+  await shot(night.page, "23-night-meal");
+  await night.page.getByRole("button", { name: "Перенести на день раньше" }).click();
+  await night.page.getByRole("button", { name: "Перенести на день позже" }).and(night.page.locator(":enabled")).waitFor();
+  check("приём перенесён на день раньше", !(await night.page.getByText("Сегодня · 01:30").count()) && (await night.page.getByText(/ · 01:30/).count()) === 1);
+  await night.page.getByRole("button", { name: "Перенести на день позже" }).click();
+  await night.page.getByText("Сегодня · 01:30").waitFor();
+  await night.page.goBack();
+  await night.page.waitForTimeout(400);
+  check("перенесённый обратно приём снова в списке дня", (await night.page.getByRole("button", { name: /Творог/ }).count()) === 1);
+  await night.ctx.close();
 
   // Без облака приложение работает локально.
   const offline = await newPage(false);

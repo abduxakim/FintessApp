@@ -56,6 +56,25 @@ export function parseNum(input: string): number | null {
   return Number.isFinite(n) && n >= 0 ? n : null;
 }
 
+/** «07:30» → 450 минут от полуночи. */
+export function minutesOf(t: string): number {
+  const [h, m] = t.split(":").map(Number);
+  return (h || 0) * 60 + (m || 0);
+}
+
+/** 450 → «07:30». */
+export function hhmm(min: number): string {
+  const m = ((Math.round(min) % 1440) + 1440) % 1440;
+  return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+}
+
+/** 90 → «1 ч 30 мин», 40 → «40 мин». */
+export function fmtMinutes(min: number): string {
+  const h = Math.floor(min / 60);
+  const m = Math.round(min % 60);
+  return h ? `${h} ч${m ? ` ${m} мин` : ""}` : `${m} мин`;
+}
+
 export function startOfWeek(ms: number): number {
   const d = new Date(ms);
   const day = (d.getDay() + 6) % 7; // понедельник = 0

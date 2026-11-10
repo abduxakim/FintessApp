@@ -2,19 +2,21 @@ import React, { useState } from "react";
 import { BLOCKS, programById } from "../../data/catalog";
 import { getState, today, updateDay, useStore } from "../../data/store";
 import { dayId } from "../../data/defaults";
-import type { Checkin, SleepEntry } from "../../data/types";
+import { DAY } from "../../data/limits";
+import type { Checkin, NapEntry, SleepEntry } from "../../data/types";
 import { useNav } from "../../app/nav";
 import { prepareProgramDay } from "../../app/actions";
 import { getDraft, setDraft } from "../../app/draft";
-import { readiness, lightenSession, sleepHours, type Readiness } from "../../domain/recovery";
+import { dayReadiness, lightenSession, napHint, napMinutes, sleepHours, type Readiness } from "../../domain/recovery";
 import { waterTarget, waterTotal } from "../../domain/nutrition";
 import { latestWeight } from "../../domain/weekly";
-import { startOfDay } from "../../domain/format";
-import { Sheet, toast } from "../../ui/kit";
+import { fmtMinutes, fmtTime, hhmm, minutesOf } from "../../domain/format";
+import { Chip, Sheet, toast } from "../../ui/kit";
 import { Icon } from "../../ui/icons";
 
 export function useTrainingToday(): boolean {
-  return useStore((s) => Object.values(s.sessions).some((x) => !x.deletedAt && x.status !== "abandoned" && x.startedAt >= startOfDay(Date.now())));
+  // Тот же «день», что и у дневника: тренировка в 23:00 и вода в 01:00 до сна — один день.
+  return useStore((s) => Object.values(s.sessions).some((x) => !x.deletedAt && x.status !== "abandoned" && dayId(x.startedAt) === dayId()));
 }
 
 // ── Вода ─────────────────────────────────────────────
@@ -124,6 +126,79 @@ export function CheckinSheet({ onClose }: { onClose: () => void }) {
   );
 }
 
+// ── Дневной сон ──────────────────────────────────────
+const NAP_OPTIONS = [20, 30, 45, 60, 90, 120, 180];
+
+/** Время пробуждения «ЧЧ:ММ» → метка: сегодня, а если это время ещё не наступило — вчера. */
+function wakeAt(t: string, now = Date.now()): number {
+  const d = new Date(now);
+  d.setHours(0, 0, 0, 0);
+  d.setMinutes(minutesOf(t));
+  if (d.getTime() > now) d.setDate(d.getDate() - 1);
+  return d.getTime();
+}
+
+export function NapSheet({ onClose }: { onClose: () => void }) {
+  const log = useStore((s) => today(s));
+  const n = new Date();
+  const [min, setMin] = useState(30);
+  const [wake, setWake] = useState(hhmm(n.getHours() * 60 + n.getMinutes()));
+  const nap: NapEntry = { at: wakeAt(wake), min };
+  const hint = napHint(nap);
+  const save = async () => {
+    await updateDay(dayId(nap.at), (d) => ({ ...d, naps: [...(d.naps ?? []), nap].sort((a, b) => a.at - b.at).slice(-DAY.naps) }));
+    toast(`Дневной сон: ${fmtMinutes(min)}`);
+    onClose();
+  };
+  const remove = (at: number) => updateDay(log.id, (d) => ({ ...d, naps: (d.naps ?? []).filter((x) => x.at !== at) }));
+  return (
+    <Sheet title="Дневной сон" onClose={onClose}>
+      <p className="small dim">Задремал на работе или после еды — отметь примерно. Это помогает понять, почему вечером не спится, и учитывается в готовности.</p>
+      <div className="field">
+        <span className="label">Сколько спал</span>
+        <div className="chips" role="group" aria-label="Сколько спал">
+          {NAP_OPTIONS.map((m) => (
+            <Chip key={m} on={min === m} onClick={() => setMin(m)}>
+              {fmtMinutes(m)}
+            </Chip>
+          ))}
+        </div>
+      </div>
+      <div className="field">
+        <label htmlFor="nap-wake">Проснулся в</label>
+        <input id="nap-wake" type="time" className="input num" value={wake} onChange={(e) => e.target.value && setWake(e.target.value)} />
+      </div>
+      {hint && <p className="xs" style={{ color: "var(--warn)" }}>{hint}</p>}
+      <button className="btn primary" onClick={save}>
+        Записать
+      </button>
+      {(log.naps ?? []).length > 0 && (
+        <div className="list">
+          {log.naps!.map((x) => (
+            <div key={x.at} className="list-item">
+              <span className="grow small num">
+                {fmtTime(x.at - x.min * 60000)}–{fmtTime(x.at)} · {fmtMinutes(x.min)}
+              </span>
+              <button className="icon-btn" aria-label={`Удалить дневной сон ${fmtTime(x.at)}`} onClick={() => remove(x.at)}>
+                <Icon name="trash" size={18} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </Sheet>
+  );
+}
+
+/** «Сон: ночью 5 ч + днём 1 ч 30 мин = 6,5 ч, качество 3/5». */
+function sleepLine(sleep: SleepEntry | null, napMin: number): string | null {
+  const dec = (h: number) => String(Math.round(h * 10) / 10).replace(".", ",");
+  if (!sleep && !napMin) return null;
+  if (!sleep) return `Днём спал ${fmtMinutes(napMin)}. Ночной сон не отмечен.`;
+  if (!napMin) return `Сон: ${dec(sleep.hours)} ч (${sleep.bed}–${sleep.wake}), качество ${sleep.quality}/5`;
+  return `Сон: ночью ${dec(sleep.hours)} ч + днём ${fmtMinutes(napMin)} = ${dec(sleep.hours + napMin / 60)} ч, качество ${sleep.quality}/5`;
+}
+
 const LEVEL_PILL = { high: "good", medium: "warn", low: "bad" } as const;
 
 export function ReadinessCard() {
@@ -131,7 +206,15 @@ export function ReadinessCard() {
   const log = useStore((s) => today(s));
   const state = useStore((s) => s);
   const [open, setOpen] = useState(false);
-  const r: Readiness | null = readiness(log.checkin, log.sleep);
+  const [napOpen, setNapOpen] = useState(false);
+  const r: Readiness | null = dayReadiness(log);
+  const naps = napMinutes(log);
+  const line = sleepLine(log.sleep, naps);
+  const napBtn = (
+    <button className="btn small ghost" onClick={() => setNapOpen(true)}>
+      + Дневной сон
+    </button>
+  );
   const en = state.meta.enrollment;
   const program = programById(state, en?.programId);
 
@@ -161,7 +244,7 @@ export function ReadinessCard() {
       {r ? (
         <>
           <p className="small dim">{r.advice}</p>
-          {log.sleep && <p className="xs muted">Сон: {String(log.sleep.hours).replace(".", ",")} ч, качество {log.sleep.quality}/5</p>}
+          {line && <p className="xs muted">{line}</p>}
           {r.level !== "high" && (
             <div className="row wrap">
               {r.suggest.includes("lighten") && (
@@ -184,19 +267,27 @@ export function ReadinessCard() {
               )}
             </div>
           )}
-          <button className="btn small ghost" style={{ alignSelf: "flex-start" }} onClick={() => setOpen(true)}>
-            Изменить
-          </button>
+          <div className="row wrap">
+            <button className="btn small ghost" onClick={() => setOpen(true)}>
+              Изменить
+            </button>
+            {napBtn}
+          </div>
         </>
       ) : (
         <>
           <p className="small dim">Отметь сон и самочувствие — подскажу, тренироваться по плану, облегчить или сделать мобильность.</p>
-          <button className="btn small primary" style={{ alignSelf: "flex-start" }} onClick={() => setOpen(true)}>
-            Отметить
-          </button>
+          {line && <p className="xs muted">{line}</p>}
+          <div className="row wrap">
+            <button className="btn small primary" onClick={() => setOpen(true)}>
+              Отметить
+            </button>
+            {napBtn}
+          </div>
         </>
       )}
       {open && <CheckinSheet onClose={() => setOpen(false)} />}
+      {napOpen && <NapSheet onClose={() => setNapOpen(false)} />}
     </section>
   );
 }

@@ -346,6 +346,13 @@ export interface SleepEntry {
   quality: number;
 }
 
+/** Дневной сон: когда проснулся и сколько спал. */
+export interface NapEntry {
+  /** Время пробуждения. */
+  at: Millis;
+  min: number;
+}
+
 /** Ежедневный чек-ин: все шкалы 1–5, где 5 — лучше (бодрость, мышцы не болят, настроение, спокойствие). */
 export interface Checkin {
   at: Millis;
@@ -395,6 +402,8 @@ export interface DayLog extends SyncFields {
   id: string;
   water: WaterEntry[];
   sleep: SleepEntry | null;
+  /** Дневной сон (на работе, после еды). */
+  naps?: NapEntry[];
   checkin: Checkin | null;
   body: BodyEntry | null;
   meals: Meal[];
@@ -419,6 +428,11 @@ export interface Reminders {
   workoutGapDays: number | null;
   /** Напоминать о чек-ине утром. */
   checkin: boolean;
+  /**
+   * Во сколько заканчивается «день» (0–6 ч). Вода, еда и перекус после полуночи до этого часа
+   * записываются во вчерашний день: пока не лёг спать, день не закончился.
+   */
+  dayEndHour: number;
 }
 
 export interface ExportFile {

@@ -1,6 +1,6 @@
 import type { CircuitSettings, DayLog, Profile, Reminders, SavedDish, UserMeta } from "./types";
 import { inRange, isFood } from "./validate";
-import { DISH, FOOD } from "./limits";
+import { DAY, DISH, FOOD } from "./limits";
 import { EQUIPMENT_PRESETS } from "./seed/labels";
 
 export const SCHEMA_VERSION = 1;
@@ -79,17 +79,48 @@ export function normalizeMeta(m: UserMeta): UserMeta {
 }
 
 export function defaultReminders(): Reminders {
-  return { waterEveryMin: 120, activeFrom: "09:00", activeTo: "22:00", workoutGapDays: 4, checkin: true };
+  return { waterEveryMin: 120, activeFrom: "09:00", activeTo: "22:00", workoutGapDays: 4, checkin: true, dayEndHour: DEFAULT_DAY_END };
 }
 
 export function emptyDay(id: string): DayLog {
   return { id, water: [], sleep: null, checkin: null, body: null, meals: [], createdAt: Date.now(), updatedAt: 0, rev: 0, deletedAt: null };
 }
 
-/** Локальная дата «YYYY-MM-DD». */
-export function dayId(ms = Date.now()): string {
+// ── Граница дня ─────────────────────────────────────
+// День заканчивается не в полночь, а в `dayEndHour` (по умолчанию 05:00): ночной перекус
+// и вода до сна относятся к дню, который ещё не закончился. Значение берётся из настроек
+// (store.setState вызывает setDayEndHour при каждой смене meta).
+export const DEFAULT_DAY_END = 5;
+let dayEnd = DEFAULT_DAY_END;
+export const setDayEndHour = (h: number | undefined) => {
+  dayEnd = inRange(h, ...DAY.dayEndHour) ? Math.round(h as number) : DEFAULT_DAY_END;
+};
+export const dayEndHour = () => dayEnd;
+
+/** Сейчас ночь после полуночи, но день ещё не закончился (записи идут во вчерашний день). */
+export const isLateNight = (ms = Date.now(), end = dayEnd) => new Date(ms).getHours() < end;
+
+const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+/** Дата дня «YYYY-MM-DD» с учётом границы дня: 01:30 при границе 05:00 — ещё вчера. */
+export function dayId(ms = Date.now(), end = dayEnd): string {
   const d = new Date(ms);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  // setDate, а не вычитание часов: так корректно при переводе часов.
+  if (d.getHours() < end) d.setDate(d.getDate() - 1);
+  return ymd(d);
+}
+
+/** Полдень дня по его id — для графиков и подписей. */
+export function dayNoon(id: string): number {
+  const [y, m, d] = id.split("-").map(Number);
+  return new Date(y, m - 1, d, 12).getTime();
+}
+
+/** Соседний день: shiftDay("2026-11-10", -1) → "2026-11-09". */
+export function shiftDay(id: string, delta: number): string {
+  const d = new Date(dayNoon(id));
+  d.setDate(d.getDate() + delta);
+  return ymd(d);
 }
 
 const time = (v: unknown, d: string) => (typeof v === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(v) ? v : d);
@@ -106,6 +137,7 @@ export function cleanReminders(r: unknown): Reminders {
     activeTo: time(o.activeTo, d.activeTo),
     workoutGapDays: o.workoutGapDays === null ? null : intOrNull(o.workoutGapDays, 1, 30) ?? d.workoutGapDays,
     checkin: typeof o.checkin === "boolean" ? o.checkin : d.checkin,
+    dayEndHour: intOrNull(o.dayEndHour, ...DAY.dayEndHour) ?? d.dayEndHour,
   };
 }
 

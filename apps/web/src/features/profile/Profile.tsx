@@ -14,7 +14,7 @@ import { BaselinesSection, BodySection, CircuitSection, GoalSection, HealthSecti
 import { fmtShort, fmtTime } from "../../domain/format";
 
 type Section = "body" | "goal" | "place" | "health" | "baselines" | "circuit" | "reminders";
-const TITLES: Record<Section, string> = { body: "Тело и опыт", goal: "Цель и фокус", place: "Место и график", health: "Здоровье и баланс", baselines: "Базовые результаты", circuit: "Круг 5-10-15", reminders: "Напоминания" };
+const TITLES: Record<Section, string> = { body: "Тело и опыт", goal: "Цель и фокус", place: "Место и график", health: "Здоровье и баланс", baselines: "Базовые результаты", circuit: "Круг 5-10-15", reminders: "Режим и напоминания" };
 
 export function ProfileHome() {
   const nav = useNav();
@@ -28,7 +28,7 @@ export function ProfileHome() {
     { s: "place", sub: `${p.locations.map((l) => LOCATIONS[l]).join(", ")} · ${p.daysPerWeek}×/нед · ${p.sessionMin} мин` },
     { s: "health", sub: p.problemZones.length ? p.problemZones.map((z) => ZONES[z.zone]).join(", ") : "Нет проблемных зон" },
     { s: "baselines", sub: p.baselines.benchKg ? `Жим ${p.baselines.benchKg} кг × ${p.baselines.benchReps ?? "?"}` : "Не заполнено" },
-    { s: "reminders", sub: (() => { const r = state.meta.reminders; return r ? [r.waterEveryMin ? `вода раз в ${r.waterEveryMin / 60} ч` : null, r.workoutGapDays ? `тренировка после ${r.workoutGapDays} дн. перерыва` : null, r.checkin ? "чек-ин утром" : null].filter(Boolean).join(" · ") || "Выключены" : "Выключены"; })() },
+    { s: "reminders", sub: (() => { const r = state.meta.reminders; return r ? [`день до ${String(r.dayEndHour).padStart(2, "0")}:00`, r.waterEveryMin ? `вода раз в ${r.waterEveryMin / 60} ч` : null, r.workoutGapDays ? `тренировка после ${r.workoutGapDays} дн. перерыва` : null, r.checkin ? "чек-ин утром" : null].filter(Boolean).join(" · ") || "Выключены" : "Выключены"; })() },
     { s: "circuit", sub: p.circuit.enabled ? `${p.circuit.position === "start" ? "После разминки" : "В конце"} · ${p.circuit.stations.map((x) => x.reps).join("-")}` : "Выключен" },
   ];
   return (
@@ -94,8 +94,15 @@ function RemindersEdit() {
   const set = (patch: Partial<Reminders>) => updateMeta((m) => ({ ...m, reminders: { ...defaultReminders(), ...m.reminders, ...patch } }));
   return (
     <>
-      <TopBar title="Напоминания" onBack={nav.back} />
+      <TopBar title="Режим и напоминания" onBack={nav.back} />
       <div className="screen">
+        <div className="field">
+          <span className="label">День заканчивается в</span>
+          <Segmented id="rem-dayend" value={r.dayEndHour} onChange={(v) => set({ dayEndHour: v })} options={[{ value: 0, label: "00:00" }, { value: 3, label: "03:00" }, { value: 4, label: "04:00" }, { value: 5, label: "05:00" }, { value: 6, label: "06:00" }]} />
+          <span className="xs muted">
+            Ночной перекус и вода после полуночи до этого часа записываются во вчерашний день: пока не лёг спать, день не закончился. Если ложишься в 3 часа — оставь 05:00. Сон, отмеченный после подъёма, идёт в новый день.
+          </span>
+        </div>
         <Note>Приложение работает внутри Claude и не может присылать push-уведомления. Напоминания показываются на экране «Сегодня», когда открываешь приложение. Для точного времени поставь будильник в телефоне.</Note>
         <div className="field">
           <span className="label">Вода: напомнить, если не пил дольше</span>

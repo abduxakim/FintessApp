@@ -1,17 +1,12 @@
 // Напоминания внутри приложения. У артефакта нет push-уведомлений, поэтому напоминания
 // показываются, когда приложение открыто: на экране «Сегодня» и баннером сверху.
 import type { DayLog, Reminders, WorkoutSession } from "../data/types";
-import { startOfDay } from "./format";
+import { minutesOf, startOfDay } from "./format";
 
 export interface Due {
   kind: "water" | "workout" | "checkin";
   text: string;
 }
-
-const minutesOf = (t: string) => {
-  const [h, m] = t.split(":").map(Number);
-  return (h || 0) * 60 + (m || 0);
-};
 
 export function dueReminders(r: Reminders | undefined, todayLog: DayLog | undefined, sessions: WorkoutSession[], now = Date.now()): Due[] {
   if (!r) return [];
