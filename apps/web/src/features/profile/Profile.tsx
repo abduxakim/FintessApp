@@ -1,14 +1,15 @@
 import React, { useRef, useState } from "react";
 import type { Profile } from "../../data/types";
 import { programById } from "../../data/catalog";
-import { getState, resetLocal, updateMeta, useStore } from "../../data/store";
-import { syncNow } from "../../data/sync";
+import { getState, resetLocal, updateMeta, useStore, wipeHistoryLocal } from "../../data/store";
+import { syncNow, wipeData } from "../../data/sync";
+import { setDraft } from "../../app/draft";
 import { exportCsv, exportToFile, importFromText } from "../../data/backup";
 import { defaultReminders } from "../../data/defaults";
 import type { Reminders } from "../../data/types";
 import { useNav } from "../../app/nav";
 import { GOALS, LEVELS, LOCATIONS, MUSCLES, ZONES } from "../../data/seed/labels";
-import { Confirm, MedicalNote, Note, Segmented, TopBar, toast } from "../../ui/kit";
+import { Confirm, MedicalNote, Note, Segmented, Sheet, TopBar, toast } from "../../ui/kit";
 import { Icon } from "../../ui/icons";
 import { BaselinesSection, BodySection, CircuitSection, GoalSection, HealthSection, PlaceSection } from "./forms";
 import { fmtShort, fmtTime } from "../../domain/format";
@@ -179,6 +180,7 @@ export function DataScreen() {
   const fileRef = useRef<HTMLInputElement>(null);
   const [fallbackJson, setFallbackJson] = useState<string | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
+  const [wipe, setWipe] = useState<"history" | "all" | null>(null);
   const sync = state.sync;
   const counts = { sessions: Object.values(state.sessions).filter((s) => !s.deletedAt).length };
 
@@ -290,14 +292,23 @@ export function DataScreen() {
 
         <section className="section">
           <div className="section-head">
-            <h2>Это устройство</h2>
+            <h2>Стереть данные</h2>
           </div>
-          <button className="btn danger" onClick={() => setConfirmReset(true)}>
-            Очистить данные на устройстве
+          <button className="btn danger" onClick={() => setWipe("history")}>
+            Стереть историю и статистику
           </button>
-          <p className="xs muted">Облачная копия останется, и данные загрузятся снова при следующей синхронизации.</p>
+          <p className="xs muted">Тренировки, рекорды, рабочие веса, еда, вода, сон и замеры — на устройстве и в облаке. Профиль, свои программы и сохранённые блюда останутся, программа начнётся с первого дня.</p>
+          <button className="btn danger" onClick={() => setWipe("all")}>
+            Стереть всё и начать заново
+          </button>
+          <p className="xs muted">Удаляет и профиль с настройками: приложение откроется как в первый раз.</p>
+          <button className="btn ghost" onClick={() => setConfirmReset(true)}>
+            Очистить только это устройство
+          </button>
+          <p className="xs muted">Облачная копия останется, и данные загрузятся снова при следующей синхронизации. Чтобы удалить навсегда — кнопки выше.</p>
         </section>
       </div>
+      {wipe && <WipeSheet scope={wipe} onExport={onExport} onClose={() => setWipe(null)} />}
       {confirmReset && (
         <Confirm
           title="Очистить данные на устройстве?"
@@ -314,6 +325,45 @@ export function DataScreen() {
         />
       )}
     </>
+  );
+}
+
+function WipeSheet({ scope, onExport, onClose }: { scope: "history" | "all"; onExport: () => void; onClose: () => void }) {
+  const st = useStore((s) => s);
+  const [sure, setSure] = useState(false);
+  const [progress, setProgress] = useState<string | null>(null);
+  const sessions = Object.values(st.sessions).filter((s) => !s.deletedAt).length;
+  const days = Object.keys(st.days).length;
+  const run = async () => {
+    setProgress("Удаляю…");
+    try {
+      const cloud = await wipeData(scope, scope === "all" ? resetLocal : wipeHistoryLocal, (done, total) => setProgress(`Удаляю из облака: ${done} из ${total}`));
+      setDraft(null);
+      toast(cloud ? (scope === "all" ? "Все данные стёрты" : "История и статистика стёрты") : "Стёрто на устройстве. Облако сейчас недоступно — на других устройствах данные могут остаться");
+      onClose();
+    } catch {
+      setProgress(null);
+      toast("Облако не ответило, ничего не удалено на устройстве. Попробуй ещё раз");
+    }
+  };
+  return (
+    <Sheet title={scope === "all" ? "Стереть всё?" : "Стереть историю?"} onClose={() => !progress && onClose()}>
+      <p className="dim">
+        Будет удалено: тренировок — {sessions}, дней дневника (еда, вода, сон, замеры) — {days}
+        {scope === "all" ? ", а также профиль, свои программы, сохранённые блюда и настройки" : ""}. На устройстве и в облаке. Отменить нельзя.
+      </p>
+      <button className="btn" onClick={onExport} disabled={!!progress}>
+        <Icon name="download" size={18} /> Сначала сохранить копию (экспорт)
+      </button>
+      <label className="row small">
+        <input type="checkbox" checked={sure} onChange={(e) => setSure(e.target.checked)} disabled={!!progress} />
+        Понимаю, что данные удалятся навсегда
+      </label>
+      {progress && <p className="small" role="status">{progress}</p>}
+      <button className="btn danger" disabled={!sure || !!progress} onClick={run}>
+        {scope === "all" ? "Стереть всё" : "Стереть историю"}
+      </button>
+    </Sheet>
   );
 }
 

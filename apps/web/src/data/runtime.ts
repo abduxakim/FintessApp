@@ -54,6 +54,8 @@ export interface CollectionRef extends Query {
 export interface DocRef {
   get(): Promise<DocSnap>;
   set(data: Record<string, unknown>): Promise<void>;
+  /** Удалить документ (вложенные документы остаются). */
+  delete(): Promise<void>;
   collection(path: string): CollectionRef;
 }
 export interface Db {

@@ -27,6 +27,7 @@ const cloudApi = {
     cloud.set(path, JSON.stringify(data));
     return true;
   },
+  del: (path) => cloud.delete(path),
   query: (col, filters, order, limit) => {
     let docs = [...cloud.entries()]
       .filter(([p]) => p.startsWith(col + "/") && !p.slice(col.length + 1).includes("/"))
@@ -44,6 +45,7 @@ const fakeClaude = () => {
       return { id: path.split("/").pop(), exists: !!d, data: () => d ?? undefined };
     },
     set: async (data) => void (await window.__cloudSet(path, data)),
+    delete: async () => void (await window.__cloudDel(path)),
     collection: (sub) => mkCol(path + "/" + sub),
   });
   const mkQuery = (col, filters = [], order = null, lim = null) => ({
@@ -111,6 +113,7 @@ async function newPage(withCloud) {
     await page.exposeFunction("__cloudGet", cloudApi.get);
     await page.exposeFunction("__cloudSet", cloudApi.set);
     await page.exposeFunction("__cloudQuery", cloudApi.query);
+    await page.exposeFunction("__cloudDel", cloudApi.del);
     await page.addInitScript(fakeClaude);
   }
   return { ctx, page };
@@ -471,6 +474,25 @@ try {
   await page.goBack();
   await page.waitForTimeout(400);
   check("после удаления блюда приёмы пищи на месте", (await page.getByRole("button", { name: /Плов и салат/ }).count()) === 2);
+  // Свои день, время и тип приёма: вчерашний обед в 13:15.
+  await page.getByRole("button", { name: "Вручную" }).click();
+  await page.locator("#meal-day").getByRole("radio", { name: "Вчера" }).click();
+  await page.fill("#meal-time", "13:15");
+  await page.locator("#meal-type-new").getByRole("radio", { name: "Ужин" }).click();
+  await page.fill("#meal-time", "13:20");
+  const keptType = await page.locator("#meal-type-new").getByRole("radio", { name: "Ужин" }).getAttribute("aria-checked");
+  await shot(page, "15a-when");
+  await page.fill("#m-name", "Суп");
+  await page.fill("#m-kcal", "250");
+  await page.getByRole("button", { name: "Добавить", exact: true }).click();
+  await page.locator("#meal-edit-time").waitFor();
+  check("приём пищи: свой день, время и тип", keptType === "true" && (await page.inputValue("#meal-edit-time")) === "13:20" && (await page.locator("#meal-type").getByRole("radio", { name: "Ужин" }).getAttribute("aria-checked")) === "true" && (await page.locator("#meal-day-label").textContent()) !== "Сегодня");
+  await page.fill("#meal-edit-time", "12:40");
+  await page.locator("#meal-type").getByRole("radio", { name: "Обед" }).click();
+  check("в карточке приёма время и тип меняются", (await page.inputValue("#meal-edit-time")) === "12:40" && (await page.locator("#meal-type").getByRole("radio", { name: "Обед" }).getAttribute("aria-checked")) === "true");
+  await page.goBack();
+  await page.waitForTimeout(400);
+  check("вчерашний приём не попал в сегодняшний список", (await page.getByRole("button", { name: /Суп/ }).count()) === 0 && (await page.getByRole("button", { name: /Плов и салат/ }).count()) === 2);
   // Заполняем профиль — появляется норма.
   await page.getByRole("button", { name: "Профиль" }).click();
   await page.getByRole("button", { name: /Тело и опыт/ }).click();
@@ -580,18 +602,56 @@ try {
   await night.page.getByRole("button", { name: "Добавить" }).click();
   await night.page.getByRole("button", { name: "Перенести на день раньше" }).waitFor();
   const mealType = await night.page.locator("#meal-type").getByRole("radio", { name: "Перекус" }).getAttribute("aria-checked");
-  check("ночной приём — перекус в текущем (вчерашнем) дне", mealType === "true" && (await night.page.getByText("Сегодня · 01:30").isVisible()));
+  const nightToday = async () => (await night.page.locator("#meal-day-label").textContent()) === "Сегодня" && (await night.page.inputValue("#meal-edit-time")) === "01:30";
+  check("ночной приём — перекус в текущем (вчерашнем) дне", mealType === "true" && (await nightToday()));
   check("на день позже нельзя — это последний день", await night.page.getByRole("button", { name: "Перенести на день позже" }).isDisabled());
   await shot(night.page, "23-night-meal");
   await night.page.getByRole("button", { name: "Перенести на день раньше" }).click();
   await night.page.getByRole("button", { name: "Перенести на день позже" }).and(night.page.locator(":enabled")).waitFor();
-  check("приём перенесён на день раньше", !(await night.page.getByText("Сегодня · 01:30").count()) && (await night.page.getByText(/ · 01:30/).count()) === 1);
+  check("приём перенесён на день раньше, время то же", !(await nightToday()) && (await night.page.inputValue("#meal-edit-time")) === "01:30");
   await night.page.getByRole("button", { name: "Перенести на день позже" }).click();
-  await night.page.getByText("Сегодня · 01:30").waitFor();
+  await night.page.locator("#meal-day-label", { hasText: "Сегодня" }).waitFor();
   await night.page.goBack();
   await night.page.waitForTimeout(400);
   check("перенесённый обратно приём снова в списке дня", (await night.page.getByRole("button", { name: /Творог/ }).count()) === 1);
   await night.ctx.close();
+
+  // Стирание: сначала история (профиль остаётся), потом всё — и на устройстве, и в облаке.
+  const wipe = await newPage(true);
+  await wipe.page.goto(URL);
+  await wipe.page.getByRole("button", { name: "Профиль" }).waitFor({ timeout: 8000 });
+  await wipe.page.getByRole("button", { name: "Прогресс" }).click();
+  await wipe.page.locator(".history-list .list-item").first().waitFor({ timeout: 8000 });
+  await wipe.page.getByRole("button", { name: "Профиль" }).click();
+  await wipe.page.getByRole("button", { name: /Данные и синхронизация/ }).click();
+  await wipe.page.getByRole("button", { name: "Стереть историю и статистику" }).click();
+  check("стирание: без подтверждения кнопка неактивна", await wipe.page.locator(".sheet").getByRole("button", { name: "Стереть историю" }).isDisabled());
+  await wipe.page.locator(".sheet").getByRole("checkbox").check();
+  await shot(wipe.page, "24-wipe");
+  await wipe.page.locator(".sheet").getByRole("button", { name: "Стереть историю" }).click();
+  await wipe.page.getByText("История и статистика стёрты").waitFor({ timeout: 8000 });
+  const left = [...cloud.keys()].filter((k) => k.includes("/sessions/") || k.includes("/days/")).length;
+  check("история стёрта в облаке, профиль и программы остались", left === 0 && cloud.has("data/users/u_test/fitness") && [...cloud.keys()].some((k) => k.includes("/programs/")), `осталось ${left}`);
+  await wipe.page.goBack();
+  await wipe.page.waitForTimeout(400);
+  await wipe.page.getByRole("button", { name: "Прогресс" }).click();
+  await wipe.page.waitForTimeout(400);
+  check("история и статистика пусты на устройстве", (await wipe.page.locator(".history-list .list-item").count()) === 0 && !(await wipe.page.getByText(/72,5 кг/).count()));
+  await wipe.page.getByRole("button", { name: "Профиль" }).click();
+  await wipe.page.getByRole("button", { name: /Данные и синхронизация/ }).click();
+  await wipe.page.getByRole("button", { name: "Стереть всё и начать заново" }).click();
+  await wipe.page.locator(".sheet").getByRole("checkbox").check();
+  await wipe.page.locator(".sheet").getByRole("button", { name: "Стереть всё" }).click();
+  await wipe.page.getByText("Тело и опыт").waitFor({ timeout: 8000 });
+  check("стереть всё: облако пустое, открылся онбординг", [...cloud.keys()].filter((k) => k.startsWith("data/users/u_test")).length === 0, [...cloud.keys()].join(", ").slice(0, 120));
+  await wipe.page.waitForTimeout(2500);
+  check("после стирания старое не вернулось синхронизацией", [...cloud.keys()].filter((k) => k.includes("/sessions/") || k.includes("/days/")).length === 0);
+  await wipe.ctx.close();
+  const fresh = await newPage(true);
+  await fresh.page.goto(URL);
+  await fresh.page.getByText("Тело и опыт").waitFor({ timeout: 10000 });
+  check("другое устройство после стирания начинает с нуля", true);
+  await fresh.ctx.close();
 
   // Без облака приложение работает локально.
   const offline = await newPage(false);

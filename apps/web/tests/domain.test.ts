@@ -693,3 +693,17 @@ describe("режим дня: граница дня и дневной сон", ()
     expect(fmtMinutes(90)).toBe("1 ч 30 мин");
   });
 });
+
+import { atOnDay, timeOf } from "../src/data/defaults";
+
+describe("время приёма пищи", () => {
+  it("день + ЧЧ:ММ с учётом границы дня", () => {
+    expect(timeOf(atOnDay("2026-11-09", "13:15", 5))).toBe("13:15");
+    expect(dayOf(atOnDay("2026-11-09", "13:15", 5), 5)).toBe("2026-11-09");
+    // 01:30 «в понедельник» — это ночь на вторник, но запись остаётся в понедельнике.
+    const night = atOnDay("2026-11-09", "01:30", 5);
+    expect(new Date(night).getDate()).toBe(10);
+    expect(dayOf(night, 5)).toBe("2026-11-09");
+    expect(new Date(atOnDay("2026-11-09", "01:30", 0)).getDate()).toBe(9);
+  });
+});

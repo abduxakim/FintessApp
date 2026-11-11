@@ -241,6 +241,22 @@ export function getEntity(kind: EntityKind, id: string): UserMeta | WorkoutSessi
   return state.programs[id];
 }
 
+/**
+ * Стереть историю на устройстве: тренировки и дневник (еда, вода, сон, замеры).
+ * Профиль, свои программы, сохранённые блюда и настройки остаются; прогресс программы — с начала.
+ */
+export async function wipeHistoryLocal(): Promise<void> {
+  await Promise.all([idb.clear("sessions"), idb.clear("days")]);
+  for (const e of [...outbox.values()]) {
+    if (e.kind === "session" || e.kind === "day") {
+      outbox.delete(e.key);
+      await idb.delete("outbox", e.key);
+    }
+  }
+  setState({ sessions: {}, days: {}, sync: { ...state.sync, pending: outbox.size } });
+  await updateMeta((m) => ({ ...m, enrollment: m.enrollment ? { ...m.enrollment, startedAt: Date.now(), nextDayIndex: 0, completedSessions: 0, carryOver: [] } : null }));
+}
+
 export async function resetLocal(): Promise<void> {
   await Promise.all(STORES.map((s) => idb.clear(s)));
   outbox.clear();

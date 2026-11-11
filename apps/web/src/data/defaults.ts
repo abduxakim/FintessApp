@@ -116,6 +116,24 @@ export function dayNoon(id: string): number {
   return new Date(y, m - 1, d, 12).getTime();
 }
 
+/**
+ * Метка времени «в день id в ЧЧ:ММ» с учётом границы дня:
+ * для дня 9 ноября при границе 05:00 время 01:30 — это ночь на 10 ноября.
+ */
+export function atOnDay(id: string, time: string, end = dayEnd): number {
+  const [h, m] = time.split(":").map(Number);
+  const d = new Date(dayNoon(id));
+  if ((h || 0) < end) d.setDate(d.getDate() + 1);
+  d.setHours(h || 0, m || 0, 0, 0);
+  return d.getTime();
+}
+
+/** «ЧЧ:ММ» метки времени — для полей type="time". */
+export function timeOf(ms: number): string {
+  const d = new Date(ms);
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
 /** Соседний день: shiftDay("2026-11-10", -1) → "2026-11-09". */
 export function shiftDay(id: string, delta: number): string {
   const d = new Date(dayNoon(id));

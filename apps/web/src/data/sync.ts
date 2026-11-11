@@ -155,6 +155,39 @@ async function pull(): Promise<void> {
   }
 }
 
+/**
+ * Стереть данные в облаке и на устройстве: тренировки и дневник ("history") или всё ("all").
+ * Пока идёт стирание, синхронизация стоит, иначе она вернула бы удалённое с устройства или из облака.
+ * Сначала облако: если оно отказало на середине, устройство не трогаем — можно повторить.
+ * Возвращает false, если облако недоступно (стёрто только устройство).
+ */
+export async function wipeData(scope: "history" | "all", wipeLocal: () => Promise<void>, onProgress?: (done: number, total: number) => void): Promise<boolean> {
+  if (!root || !sessionsCol || !programsCol || !daysCol) {
+    await wipeLocal();
+    return false;
+  }
+  while (pulling || flushing) await new Promise((r) => setTimeout(r, 100));
+  if (flushTimer) clearTimeout(flushTimer);
+  pulling = flushing = true;
+  try {
+    const cols = scope === "all" ? [sessionsCol, daysCol, programsCol] : [sessionsCol, daysCol];
+    const refs: DocRef[] = [];
+    for (const col of cols) for (const d of await readAll(col, 0)) refs.push(col.doc(d.id));
+    if (scope === "all") refs.push(root);
+    let done = 0;
+    onProgress?.(0, refs.length);
+    // По одному документу: облако ограничивает частоту записей.
+    for (const ref of refs) {
+      await ref.delete();
+      onProgress?.(++done, refs.length);
+    }
+    await wipeLocal();
+    return true;
+  } finally {
+    pulling = flushing = false;
+  }
+}
+
 function refFor(entry: OutboxEntry): DocRef | null {
   if (!root || !sessionsCol || !programsCol || !daysCol) return null;
   if (entry.kind === "meta") return root;

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { today, updateDay, updateMeta, useStore } from "../../data/store";
-import { dayEndHour, dayId, dayNoon, isLateNight, shiftDay } from "../../data/defaults";
+import { atOnDay, dayEndHour, dayId, dayNoon, isLateNight, shiftDay, timeOf } from "../../data/defaults";
 import { capability } from "../../data/runtime";
 import type { FoodItem, Meal, MealType } from "../../data/types";
 import { useNav, useScreenState } from "../../app/nav";
@@ -8,7 +8,7 @@ import { buildFoodPrompt, dailyTargets, dayTotals, itemTotals, MEAL_TYPES, mealT
 import { latestWeight } from "../../domain/weekly";
 import { compressImage } from "../../domain/photo";
 import { uuidv7 } from "../../domain/ids";
-import { fmtDay, fmtTime, parseNum } from "../../domain/format";
+import { fmtDay, fmtShort, fmtTime, parseNum } from "../../domain/format";
 import { Confirm, Note, Segmented, TopBar, toast } from "../../ui/kit";
 import { Icon } from "../../ui/icons";
 import { useTrainingToday } from "../wellness/Wellness";
@@ -149,6 +149,40 @@ export function NutritionHome() {
   );
 }
 
+/** Когда и какой приём пищи: день, время, тип. По умолчанию — сейчас, тип по времени. */
+interface When {
+  day: string;
+  time: string;
+  type: MealType;
+  /** Тип выбран вручную — время его больше не меняет. */
+  typeSet: boolean;
+}
+
+function nowWhen(): When {
+  const now = Date.now();
+  return { day: dayId(now), time: timeOf(now), type: mealTypeByTime(now), typeSet: false };
+}
+
+const dayLabel = (id: string) => (id === dayId() ? "Сегодня" : id === shiftDay(dayId(), -1) ? "Вчера" : fmtShort(dayNoon(id)));
+
+function WhenPicker({ value, onChange }: { value: When; onChange: (w: When) => void }) {
+  const todayId = dayId();
+  const days = [0, -1, -2].map((d) => shiftDay(todayId, d));
+  const setTime = (time: string) => onChange({ ...value, time, type: value.typeSet ? value.type : mealTypeByTime(atOnDay(value.day, time)) });
+  return (
+    <section className="card tight" aria-label="Когда ел">
+      <Segmented id="meal-day" value={value.day} onChange={(day: string) => onChange({ ...value, day })} options={days.map((d) => ({ value: d, label: dayLabel(d) }))} />
+      <div className="row">
+        <label htmlFor="meal-time" className="small grow">
+          Во сколько ел
+        </label>
+        <input id="meal-time" type="time" className="input num" style={{ width: "9em" }} value={value.time} onChange={(e) => e.target.value && setTime(e.target.value)} />
+      </div>
+      <Segmented id="meal-type-new" value={value.type} onChange={(type: MealType) => onChange({ ...value, type, typeSet: true })} options={(Object.keys(MEAL_TYPES) as MealType[]).map((k) => ({ value: k, label: MEAL_TYPES[k] }))} />
+    </section>
+  );
+}
+
 type SampleFn = { json: (input: string, opts?: Record<string, unknown>) => Promise<unknown> };
 
 async function saveMeal(meal: Meal): Promise<void> {
@@ -173,6 +207,13 @@ export function FoodAdd({ mode }: { mode: "photo" | "text" | "saved" | "manual" 
     [img],
   );
   const [removeId, setRemoveId] = useState<string | null>(null);
+  const [when, setWhen] = useScreenState<When>("when", nowWhen);
+
+  /** Приём пищи с выбранными днём, временем и типом. */
+  const stamp = (m: Omit<Meal, "id" | "at" | "type">): Meal => {
+    const at = atOnDay(when.day, when.time);
+    return { ...m, id: uuidv7(), at, type: when.type };
+  };
 
   const finish = async (meal: Meal) => {
     await saveMeal(meal);
@@ -191,8 +232,7 @@ export function FoodAdd({ mode }: { mode: "photo" | "text" | "saved" | "manual" 
       const raw = await sample.json(buildFoodPrompt(text, !!img), { images: img ? [img.blob] : undefined, signal: ctl.current.signal, modelTier: "default" });
       const r = parseFoodResult(raw);
       if (!r) return setError("Не получилось распознать еду. Попробуй другое фото или опиши словами.");
-      const now = Date.now();
-      await finish({ id: uuidv7(now), at: now, type: mealTypeByTime(now), title: r.title, source: img ? "photo" : "text", items: r.items, uncertainty: r.uncertainty });
+      await finish(stamp({ title: r.title, source: img ? "photo" : "text", items: r.items, uncertainty: r.uncertainty }));
     } catch (e) {
       const code = (e as { code?: string })?.code;
       if (code !== "cancelled") setError(code === "not_granted" ? "Доступ к Claude не разрешён." : code === "rate_limited" ? "Лимит запросов к Claude исчерпан, попробуй позже." : "Claude сейчас недоступен. Можно добавить вручную.");
@@ -219,16 +259,12 @@ export function FoodAdd({ mode }: { mode: "photo" | "text" | "saved" | "manual" 
     if (kcal > FOOD.portionKcal) return setError("Слишком много калорий для одной порции — проверь число.");
     const k = 100 / grams;
     const per100 = (v: string) => clamp((parseNum(v) ?? 0) * k, FOOD.macro100);
-    const now = Date.now();
-    await finish({
-      id: uuidv7(now),
-      at: now,
-      type: mealTypeByTime(now),
+    await finish(stamp({
       title: manual.name.trim().slice(0, DAY.title),
       source: "manual",
       uncertainty: 0.05,
       items: [{ name: manual.name.trim().slice(0, FOOD.name), grams, kcal100: clamp(kcal * k, FOOD.kcal100), p100: per100(manual.p), f100: per100(manual.f), c100: per100(manual.c) }],
-    });
+    }));
   };
 
   const titles = { photo: "Еда по фото", text: "Описать еду", saved: "Сохранённые блюда", manual: "Добавить вручную" };
@@ -237,6 +273,7 @@ export function FoodAdd({ mode }: { mode: "photo" | "text" | "saved" | "manual" 
       <TopBar title={titles[mode]} onBack={nav.back} />
       <div className="screen">
         <NightNote />
+        <WhenPicker value={when} onChange={setWhen} />
         {(mode === "photo" || mode === "text") && (
           <>
             {mode === "photo" && (
@@ -289,8 +326,7 @@ export function FoodAdd({ mode }: { mode: "photo" | "text" | "saved" | "manual" 
                       className="btn small primary"
                       onClick={async () => {
                         await updateMeta((m) => ({ ...m, savedDishes: (m.savedDishes ?? []).map((x) => (x.id === d.id ? { ...x, uses: x.uses + 1 } : x)) }));
-                        const now = Date.now();
-                        await finish({ id: uuidv7(now), at: now, type: mealTypeByTime(now), title: d.name, source: "saved", items: d.items.map((i) => ({ ...i })), uncertainty: d.uncertainty });
+                        await finish(stamp({ title: d.name, source: "saved", items: d.items.map((i) => ({ ...i })), uncertainty: d.uncertainty }));
                       }}
                     >
                       Добавить
@@ -352,7 +388,9 @@ export function MealEditor({ date, id }: { date: string; id: string }) {
   const move = async (delta: number) => {
     const to = shiftDay(date, delta);
     await updateDay(date, (d) => ({ ...d, meals: d.meals.filter((m) => m.id !== id) }));
-    await updateDay(to, (d) => ({ ...d, meals: [...d.meals.filter((m) => m.id !== id), meal] }));
+    // Время сохраняем, дату сдвигаем: приём остаётся в том же «ЧЧ:ММ», но в другой день.
+    const moved = { ...meal, at: atOnDay(to, timeOf(meal.at)) };
+    await updateDay(to, (d) => ({ ...d, meals: [...d.meals.filter((m) => m.id !== id), moved] }));
     toast(`Перенесено: ${fmtDay(dayNoon(to))}`);
     nav.backThen(() => nav.push({ name: "meal", date: to, id }));
   };
@@ -376,9 +414,10 @@ export function MealEditor({ date, id }: { date: string; id: string }) {
           <button className="icon-btn" aria-label="Перенести на день раньше" onClick={() => move(-1)}>
             <Icon name="back" size={18} />
           </button>
-          <span className="grow small" style={{ textAlign: "center" }}>
-            {date === lastDay ? "Сегодня" : fmtDay(dayNoon(date))} · {fmtTime(meal.at)}
+          <span id="meal-day-label" className="grow small" style={{ textAlign: "center" }}>
+            {date === lastDay ? "Сегодня" : fmtDay(dayNoon(date))}
           </span>
+          <input id="meal-edit-time" aria-label="Время приёма пищи" type="time" className="input num" style={{ width: "9em" }} value={timeOf(meal.at)} onChange={(e) => e.target.value && upd((m) => ({ ...m, at: atOnDay(date, e.target.value) }))} />
           <button className="icon-btn" aria-label="Перенести на день позже" disabled={date >= lastDay} onClick={() => move(1)}>
             <Icon name="chev" size={18} />
           </button>
