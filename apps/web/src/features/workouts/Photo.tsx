@@ -1,0 +1,258 @@
+import React, { useEffect, useRef, useState } from "react";
+import { EXERCISES, EXERCISE_BY_ID, programById } from "../../data/catalog";
+import { capability } from "../../data/runtime";
+import { getState, updateMeta, useStore } from "../../data/store";
+import { MUSCLES } from "../../data/seed/labels";
+import { useNav } from "../../app/nav";
+import { getDraft, updateDraft } from "../../app/draft";
+import { addToProgramDay, prepareCustom } from "../../app/actions";
+import { bestDayFor } from "../../domain/tweaks";
+import { buildPhotoPrompt, compressImage, parsePhotoResult, type PhotoResult } from "../../domain/photo";
+import { Note, TopBar, toast } from "../../ui/kit";
+import { Icon } from "../../ui/icons";
+import { newItem } from "./Preview";
+
+type SampleFn = { json: (input: string, opts?: Record<string, unknown>) => Promise<unknown> };
+
+const CONF = { high: ["good", "уверенно"], medium: ["", "скорее всего"], low: ["warn", "не уверен"] } as const;
+
+export function PhotoScreen() {
+  const nav = useNav();
+  // Два поля: камера (capture) и галерея (без capture — Android предложит выбрать файл из галереи).
+  const fileRef = useRef<HTMLInputElement>(null);
+  const cameraRef = useRef<HTMLInputElement>(null);
+  const ctl = useRef<AbortController | null>(null);
+  const [img, setImg] = useState<{ blob: Blob; url: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<PhotoResult | null>(null);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  // Подходящий день программы для каждого найденного упражнения (выбирается автоматически, можно сменить).
+  const [dayFor, setDayFor] = useState<Record<string, number>>({});
+  const program = useStore((s) => programById(s, s.meta.enrollment?.programId));
+  const fromDraft = !!getDraft();
+  useEffect(() => () => {
+    if (img) URL.revokeObjectURL(img.url);
+  }, [img]);
+
+  const onFile = async (f: File) => {
+    setError(null);
+    setResult(null);
+    if (!f.type.startsWith("image/")) return setError("Нужен файл с фото.");
+    if (f.size > 25 * 1024 * 1024) return setError("Фото слишком большое.");
+    try {
+      const blob = await compressImage(f);
+      setImg({ blob, url: URL.createObjectURL(blob) });
+    } catch {
+      setError("Не удалось открыть фото. Попробуй другое.");
+    }
+  };
+
+  const recognize = async () => {
+    if (!img) return;
+    const sample = await capability<SampleFn>("sample");
+    if (!sample) return setError("Распознавание работает только в приложении внутри Claude.");
+    setBusy(true);
+    setError(null);
+    ctl.current = new AbortController();
+    try {
+      const raw = await sample.json(buildPhotoPrompt(EXERCISES), { images: [img.blob], signal: ctl.current.signal, modelTier: "default" });
+      const r = parsePhotoResult(raw, EXERCISE_BY_ID);
+      if (!r || (!r.exerciseIds.length && !r.newExercises.length)) {
+        setError(r?.note || "Не получилось распознать тренажёр. Сфотографируй его целиком, при хорошем свете.");
+      } else {
+        setResult(r);
+        setPicked(new Set([...r.exerciseIds, ...r.newExercises.map((e) => e.id)]));
+        const prog = programById(getState(), getState().meta.enrollment?.programId);
+        if (prog) {
+          const lookup = { ...EXERCISE_BY_ID, ...Object.fromEntries(r.newExercises.map((e) => [e.id, e])) };
+          setDayFor(Object.fromEntries([...r.exerciseIds.map((id) => EXERCISE_BY_ID[id]), ...r.newExercises].map((e) => [e.id, bestDayFor(prog, e, lookup)])));
+        }
+      }
+    } catch (e) {
+      const code = (e as { code?: string })?.code;
+      if (code !== "cancelled")
+        setError(
+          code === "not_granted"
+            ? "Доступ к Claude не разрешён."
+            : code === "images_unavailable" || code === "image_rejected"
+              ? "Claude не принял фото. Попробуй другое."
+              : code === "rate_limited"
+                ? "Лимит запросов к Claude исчерпан, попробуй позже."
+                : "Claude сейчас недоступен. Попробуй позже.",
+        );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const apply = async () => {
+    if (!result) return;
+    const fresh = result.newExercises.filter((e) => picked.has(e.id));
+    if (fresh.length) await updateMeta((m) => ({ ...m, customExercises: [...(m.customExercises ?? []), ...fresh] }));
+    const ids = [...result.exerciseIds, ...fresh.map((e) => e.id)].filter((id) => picked.has(id));
+    if (!ids.length) return toast("Ничего не выбрано");
+    if (!getDraft()) prepareCustom(result.machine);
+    updateDraft((s) => {
+      const items = ids.filter((id) => !s.exercises.some((e) => e.exerciseId === id)).map((id) => newItem(id));
+      const cd = s.exercises.findIndex((e) => e.block === "cooldown");
+      const list = s.exercises.slice();
+      list.splice(cd < 0 ? list.length : cd, 0, ...items);
+      return { ...s, exercises: list };
+    });
+    toast(`Добавлено: ${ids.length}`);
+    nav.backThen(() => nav.push({ name: "preview" }));
+  };
+
+  /** Добавить выбранные упражнения в подходящие дни программы — насовсем. */
+  const addToProgram = async () => {
+    if (!result || !program) return;
+    const fresh = result.newExercises.filter((e) => picked.has(e.id));
+    if (fresh.length) await updateMeta((m) => ({ ...m, customExercises: [...(m.customExercises ?? []), ...fresh] }));
+    const ids = [...result.exerciseIds, ...fresh.map((e) => e.id)].filter((id) => picked.has(id));
+    if (!ids.length) return toast("Ничего не выбрано");
+    const days = new Set<string>();
+    for (const id of ids) {
+      const day = program.days[dayFor[id] ?? 0];
+      await addToProgramDay(program.id, day.id, id);
+      days.add(day.name);
+    }
+    toast(`Добавлено в программу: ${[...days].join(", ")}`);
+    nav.backThen(() => nav.push({ name: "program", id: program.id }));
+  };
+
+  const saveOnly = async () => {
+    const fresh = result?.newExercises.filter((e) => picked.has(e.id)) ?? [];
+    if (!fresh.length) return toast("Новых упражнений не выбрано");
+    await updateMeta((m) => ({ ...m, customExercises: [...(m.customExercises ?? []), ...fresh] }));
+    toast("Сохранено в библиотеку");
+  };
+
+  const toggle = (id: string) => setPicked((p) => {
+    const n = new Set(p);
+    if (n.has(id)) n.delete(id);
+    else n.add(id);
+    return n;
+  });
+
+  return (
+    <>
+      <TopBar title="Тренажёр по фото" onBack={nav.back} />
+      <div className="screen">
+        <p className="dim">Сфотографируй тренажёр целиком — приложение определит, что это, и предложит упражнения на нём.</p>
+        {[
+          { ref: cameraRef, id: "photo-camera", capture: true },
+          { ref: fileRef, id: "photo-file", capture: false },
+        ].map((f) => (
+          <input
+            key={f.id}
+            ref={f.ref}
+            id={f.id}
+            type="file"
+            accept="image/*"
+            {...(f.capture ? { capture: "environment" as const } : {})}
+            hidden
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) void onFile(file);
+              e.target.value = "";
+            }}
+          />
+        ))}
+        {img ? (
+          <img src={img.url} alt="Фото тренажёра" className="photo-preview" />
+        ) : (
+          <div className="empty" style={{ alignItems: "center" }}>
+            <Icon name="camera" size={28} />
+            <b>Сфотографируй тренажёр или выбери фото из галереи</b>
+          </div>
+        )}
+        <div className="grid-2">
+          <button className="btn" onClick={() => cameraRef.current?.click()} disabled={busy}>
+            <Icon name="camera" size={18} /> Камера
+          </button>
+          <button className="btn" onClick={() => fileRef.current?.click()} disabled={busy}>
+            <Icon name="upload" size={18} /> Галерея
+          </button>
+        </div>
+        <button className="btn primary big block" onClick={recognize} disabled={!img || busy}>
+          <Icon name="spark" size={18} /> Распознать
+        </button>
+        {busy && (
+          <div className="card tight">
+            <p className="small">Claude смотрит на фото… обычно 10–40 секунд</p>
+            <button className="btn" onClick={() => ctl.current?.abort()}>
+              Остановить
+            </button>
+          </div>
+        )}
+        {error && <Note kind="warn">{error}</Note>}
+        {result && (
+          <section className="section">
+            <div className="section-head">
+              <h2>{result.machine}</h2>
+              <span className={"pill " + CONF[result.confidence][0]}>{CONF[result.confidence][1]}</span>
+            </div>
+            {result.note && <p className="small dim">{result.note}</p>}
+            <div className="list">
+              {[...result.exerciseIds.map((id) => EXERCISE_BY_ID[id]), ...result.newExercises].map((e) => (
+                <label key={e.id} className="list-item">
+                  <input type="checkbox" checked={picked.has(e.id)} onChange={() => toggle(e.id)} />
+                  <div className="grow">
+                    <div className="row">
+                      <span className="title">{e.name}</span>
+                      {e.id.startsWith("custom_") && <span className="pill warn">новое — проверь</span>}
+                    </div>
+                    <div className="sub">{e.primary.map((m) => MUSCLES[m].name).join(", ")}</div>
+                    {program && program.days.length > 0 && (
+                      <button
+                        type="button"
+                        className="chip"
+                        style={{ marginTop: 6, minHeight: 30 }}
+                        aria-label={`День для «${e.name}»: ${program.days[dayFor[e.id] ?? 0].name}. Нажми, чтобы сменить`}
+                        onClick={(ev) => {
+                          ev.preventDefault();
+                          setDayFor((d) => ({ ...d, [e.id]: ((d[e.id] ?? 0) + 1) % program.days.length }));
+                        }}
+                      >
+                        → {program.days[dayFor[e.id] ?? 0].name}
+                        {program.days[dayFor[e.id] ?? 0].focus ? ` · ${program.days[dayFor[e.id] ?? 0].focus}` : ""}
+                      </button>
+                    )}
+                  </div>
+                </label>
+              ))}
+            </div>
+            {result.newExercises.length > 0 && <p className="xs muted">Новые упражнения описал Claude по фото — технику стоит проверить по видео или с тренером. Они сохранятся в библиотеке с пометкой «проверить».</p>}
+            {program ? (
+              <>
+                <p className="xs muted">День программы подобран по мышцам. Нажми на день, чтобы выбрать другой.</p>
+                <button className="btn primary big block btn-2line" onClick={addToProgram}>
+                  <span className="row" style={{ justifyContent: "center" }}>
+                    <Icon name="plus" size={18} /> Добавить в программу
+                  </span>
+                  <span className="xs" style={{ fontWeight: 500, opacity: 0.8 }}>
+                    «{program.name}»
+                  </span>
+                </button>
+                <button className="btn block" onClick={apply}>
+                  {fromDraft ? "Только в эту тренировку" : "Только в одну тренировку"}
+                </button>
+              </>
+            ) : (
+              <button className="btn primary big block" onClick={apply}>
+                <Icon name="plus" size={18} /> Добавить в тренировку
+              </button>
+            )}
+            {result.newExercises.length > 0 && (
+              <button className="btn block" onClick={saveOnly}>
+                Только сохранить новые в библиотеку
+              </button>
+            )}
+          </section>
+        )}
+        <Note>Фото уменьшается и очищается от метаданных (в том числе геолокации) на телефоне, затем отправляется в Claude только для распознавания.</Note>
+      </div>
+    </>
+  );
+}
